@@ -1,0 +1,57 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.pdb
+*.exe
+*.nupkg
+
+## IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Build output
+publish/
+out/
+artifacts/
+
+## Terraform
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.backup
+infra/terraform/*.tfplan
+infra/terraform/tfplan
+infra/terraform/.terraform.lock.hcl
+infra/terraform/terraform.tfvars
+infra/terraform/backend.tfvars
+
+## Deploy outputs
+deploy/infra-outputs.json
+
+## Docker
+docker-compose.override.yaml
+
+## Secrets (never commit)
+*.pfx
+*.pem
+*.key
+appsettings.*.local.json
+
+## Logs
+logs/
+*.log
+
+## Test results
+TestResults/
+coverage/

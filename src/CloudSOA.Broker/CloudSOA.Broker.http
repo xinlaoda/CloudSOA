@@ -1,0 +1,6 @@
+@CloudSOA.Broker_HostAddress = http://localhost:5036
+
+GET {{CloudSOA.Broker_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

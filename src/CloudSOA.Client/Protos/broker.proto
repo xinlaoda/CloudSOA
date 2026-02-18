@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+option csharp_namespace = "CloudSOA.Broker.Protos";
+
+package cloudsoa;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+
+service BrokerService {
+  rpc CreateSession(CreateSessionRequest) returns (SessionInfoReply);
+  rpc GetSession(GetSessionRequest) returns (SessionInfoReply);
+  rpc AttachSession(AttachSessionRequest) returns (SessionInfoReply);
+  rpc CloseSession(CloseSessionRequest) returns (google.protobuf.Empty);
+  rpc GetSessionStatus(GetSessionRequest) returns (SessionStatusReply);
+}
+
+// Enums
+enum SessionTypeProto {
+  INTERACTIVE = 0;
+  DURABLE = 1;
+}
+
+enum SessionStateProto {
+  CREATING = 0;
+  ACTIVE = 1;
+  CLOSING = 2;
+  CLOSED = 3;
+  FAULTED = 4;
+  TIMED_OUT = 5;
+}
+
+enum TransportSchemeProto {
+  GRPC = 0;
+  HTTP = 1;
+  WEBSOCKET = 2;
+}
+
+// Requests
+message CreateSessionRequest {
+  string service_name = 1;
+  SessionTypeProto session_type = 2;
+  int32 minimum_units = 3;
+  int32 maximum_units = 4;
+  TransportSchemeProto transport_scheme = 5;
+  google.protobuf.Duration session_idle_timeout = 6;
+  google.protobuf.Duration client_idle_timeout = 7;
+  map<string, string> properties = 8;
+}
+
+message GetSessionRequest {
+  string session_id = 1;
+}
+
+message AttachSessionRequest {
+  string session_id = 1;
+  string client_id = 2;
+}
+
+message CloseSessionRequest {
+  string session_id = 1;
+}
+
+// Replies
+message SessionInfoReply {
+  string session_id = 1;
+  string service_name = 2;
+  SessionStateProto state = 3;
+  SessionTypeProto session_type = 4;
+  int32 minimum_units = 5;
+  int32 maximum_units = 6;
+  string client_id = 7;
+  google.protobuf.Timestamp created_at = 8;
+  string broker_endpoint = 9;
+  TransportSchemeProto transport_scheme = 10;
+}
+
+message SessionStatusReply {
+  string session_id = 1;
+  SessionStateProto state = 2;
+  int32 current_units = 3;
+  int64 pending_requests = 4;
+  int64 processed_requests = 5;
+  int64 failed_requests = 6;
+  google.protobuf.Timestamp last_accessed_at = 7;
+}

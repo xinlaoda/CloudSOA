@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: broker-config
+  namespace: cloudsoa
+data:
+  ConnectionStrings__Redis: "redis-service.cloudsoa.svc.cluster.local:6379"
+  Kestrel__Endpoints__Http__Url: "http://0.0.0.0:5000"
+  Kestrel__Endpoints__Grpc__Url: "http://0.0.0.0:5001"
+  Kestrel__Endpoints__Grpc__Protocols: "Http2"

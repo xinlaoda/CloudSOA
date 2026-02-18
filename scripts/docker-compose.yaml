@@ -1,0 +1,60 @@
+# docker-compose.yaml — CloudSOA 本地开发环境
+# 用法: docker compose -f scripts/docker-compose.yaml up -d
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: cloudsoa-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  broker:
+    build:
+      context: ..
+      dockerfile: src/CloudSOA.Broker/Dockerfile
+    container_name: cloudsoa-broker
+    ports:
+      - "5000:5000"
+      - "5001:5001"
+    environment:
+      - ConnectionStrings__Redis=redis:6379
+      - Kestrel__Endpoints__Http__Url=http://0.0.0.0:5000
+      - Kestrel__Endpoints__Grpc__Url=http://0.0.0.0:5001
+      - Kestrel__Endpoints__Grpc__Protocols=Http2
+      - Logging__LogLevel__Default=Information
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  servicehost:
+    build:
+      context: ..
+      dockerfile: src/CloudSOA.ServiceHost/Dockerfile
+    container_name: cloudsoa-servicehost
+    ports:
+      - "5010:5010"
+    environment:
+      - ASPNETCORE_URLS=http://+:5010
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5010/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  redis-data:

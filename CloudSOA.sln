@@ -1,0 +1,57 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{5252DCFC-E5F8-4EA1-B10B-2B3588E08049}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CloudSOA.Common", "src\CloudSOA.Common\CloudSOA.Common.csproj", "{6B18B587-EFBD-4BA0-B9B4-F9026AB242CF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CloudSOA.Broker", "src\CloudSOA.Broker\CloudSOA.Broker.csproj", "{F158DF7B-B9DD-4957-8E04-06D256FF0A8D}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{A5CC47B8-DB2B-4A3F-9340-D6DC2E518D29}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CloudSOA.Broker.Tests", "tests\CloudSOA.Broker.Tests\CloudSOA.Broker.Tests.csproj", "{580549DF-15BE-4CB7-B816-80731D4AE399}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CloudSOA.ServiceHost", "src\CloudSOA.ServiceHost\CloudSOA.ServiceHost.csproj", "{7B6AC8CB-51E0-4865-A700-4C5EDB358093}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CloudSOA.Client", "src\CloudSOA.Client\CloudSOA.Client.csproj", "{573AC852-0424-48BF-ADF4-A400BA8EA67A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6B18B587-EFBD-4BA0-B9B4-F9026AB242CF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6B18B587-EFBD-4BA0-B9B4-F9026AB242CF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6B18B587-EFBD-4BA0-B9B4-F9026AB242CF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6B18B587-EFBD-4BA0-B9B4-F9026AB242CF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F158DF7B-B9DD-4957-8E04-06D256FF0A8D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F158DF7B-B9DD-4957-8E04-06D256FF0A8D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F158DF7B-B9DD-4957-8E04-06D256FF0A8D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F158DF7B-B9DD-4957-8E04-06D256FF0A8D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{580549DF-15BE-4CB7-B816-80731D4AE399}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{580549DF-15BE-4CB7-B816-80731D4AE399}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{580549DF-15BE-4CB7-B816-80731D4AE399}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{580549DF-15BE-4CB7-B816-80731D4AE399}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7B6AC8CB-51E0-4865-A700-4C5EDB358093}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7B6AC8CB-51E0-4865-A700-4C5EDB358093}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7B6AC8CB-51E0-4865-A700-4C5EDB358093}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7B6AC8CB-51E0-4865-A700-4C5EDB358093}.Release|Any CPU.Build.0 = Release|Any CPU
+		{573AC852-0424-48BF-ADF4-A400BA8EA67A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{573AC852-0424-48BF-ADF4-A400BA8EA67A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{573AC852-0424-48BF-ADF4-A400BA8EA67A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{573AC852-0424-48BF-ADF4-A400BA8EA67A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{6B18B587-EFBD-4BA0-B9B4-F9026AB242CF} = {5252DCFC-E5F8-4EA1-B10B-2B3588E08049}
+		{F158DF7B-B9DD-4957-8E04-06D256FF0A8D} = {5252DCFC-E5F8-4EA1-B10B-2B3588E08049}
+		{580549DF-15BE-4CB7-B816-80731D4AE399} = {A5CC47B8-DB2B-4A3F-9340-D6DC2E518D29}
+		{7B6AC8CB-51E0-4865-A700-4C5EDB358093} = {5252DCFC-E5F8-4EA1-B10B-2B3588E08049}
+		{573AC852-0424-48BF-ADF4-A400BA8EA67A} = {5252DCFC-E5F8-4EA1-B10B-2B3588E08049}
+	EndGlobalSection
+EndGlobal
