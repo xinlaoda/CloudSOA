@@ -1,5 +1,6 @@
 using CloudSOA.ServiceHost.Wcf.Loader;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -13,6 +14,16 @@ public static class WcfHostRunner
     public static WebApplication Build(string[] args, string? dllPath = null)
     {
         var builder = WebApplication.CreateBuilder(args);
+
+        // Force HTTP/2 for gRPC (Windows Kestrel defaults to HTTP/1.1)
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            options.ListenAnyIP(5010, listenOptions =>
+            {
+                listenOptions.Protocols = HttpProtocols.Http2;
+            });
+        });
+
         builder.Services.AddGrpc();
         builder.Services.AddHealthChecks();
 

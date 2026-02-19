@@ -66,19 +66,56 @@ public class WcfServiceAdapter : ISOAService
         return SerializeResult(result);
     }
 
-    private static object?[] DeserializeParameters(byte[] payload, Type[] parameterTypes)
+    private object?[] DeserializeParameters(byte[] payload, Type[] parameterTypes)
     {
         if (parameterTypes.Length == 0)
             return Array.Empty<object?>();
 
-        if (parameterTypes.Length == 1)
+        if (payload.Length == 0)
+            return parameterTypes.Select(t => t.IsValueType ? Activator.CreateInstance(t) : null).ToArray();
+
+        try
         {
-            // Single parameter: deserialize directly
-            return new[] { Deserialize(payload, parameterTypes[0]) };
+            using var ms = new MemoryStream(payload);
+            using var reader = System.Xml.XmlReader.Create(ms);
+
+            reader.MoveToContent();
+            if (reader.NodeType != System.Xml.XmlNodeType.Element)
+                throw new InvalidOperationException("Expected root element");
+
+            var values = new List<object?>();
+            if (!reader.Read()) throw new InvalidOperationException("Empty element");
+
+            var paramIndex = 0;
+            while (paramIndex < parameterTypes.Length)
+            {
+                while (reader.NodeType != System.Xml.XmlNodeType.Element)
+                {
+                    if (reader.NodeType == System.Xml.XmlNodeType.EndElement || !reader.Read())
+                        break;
+                }
+                if (reader.NodeType != System.Xml.XmlNodeType.Element)
+                    break;
+
+                var text = reader.ReadElementContentAsString();
+                values.Add(Convert.ChangeType(text, parameterTypes[paramIndex],
+                    System.Globalization.CultureInfo.InvariantCulture));
+                paramIndex++;
+            }
+
+            if (values.Count == parameterTypes.Length)
+                return values.ToArray();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "XML deserialization failed, falling through");
         }
 
-        // Multiple parameters: deserialize as object array wrapper
-        return new[] { Deserialize(payload, parameterTypes[0]) };
+        // Fallback: single parameter
+        if (parameterTypes.Length == 1)
+            return new[] { Deserialize(payload, parameterTypes[0]) };
+
+        return parameterTypes.Select(t => t.IsValueType ? Activator.CreateInstance(t) : null).ToArray();
     }
 
     private static object? Deserialize(byte[] data, Type type)

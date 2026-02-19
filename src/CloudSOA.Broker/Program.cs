@@ -22,7 +22,17 @@ builder.Services.AddSingleton<ISessionManager, SessionManagerService>();
 // Phase 2: Queue, Dispatcher, Response Cache
 builder.Services.AddSingleton<IRequestQueue, RedisRequestQueue>();
 builder.Services.AddSingleton<IResponseStore, RedisResponseStore>();
-builder.Services.AddSingleton<IDispatcherEngine, DispatcherEngine>();
+builder.Services.AddSingleton<ServiceRouter>();
+builder.Services.AddSingleton<IDispatcherEngine>(sp =>
+{
+    var engine = new DispatcherEngine(
+        sp.GetRequiredService<IRequestQueue>(),
+        sp.GetRequiredService<IResponseStore>(),
+        sp.GetRequiredService<ILogger<DispatcherEngine>>());
+    var router = sp.GetRequiredService<ServiceRouter>();
+    engine.RequestHandler = req => router.ExecuteAsync(req);
+    return engine;
+});
 builder.Services.AddSingleton<FlowController>();
 
 // Phase 5: HA + Metrics

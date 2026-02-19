@@ -40,7 +40,8 @@ public class ServiceDeploymentService
             ? _configuration["ServiceHost:WcfImage"] ?? "xxincloudsoaacr.azurecr.io/servicehost-wcf:v1.0.0"
             : _configuration["ServiceHost:Image"] ?? "xxincloudsoaacr.azurecr.io/servicehost-echo:v1.0.0";
 
-        var blobConn = _configuration["AzureBlob:ConnectionString"] ?? "";
+        var blobConn = _configuration["ConnectionStrings:AzureBlobStorage"]
+            ?? _configuration["AzureBlob:ConnectionString"] ?? "";
 
         var deployment = new V1Deployment
         {
@@ -92,7 +93,7 @@ public class ServiceDeploymentService
                                 {
                                     new() { ContainerPort = 5010 }
                                 },
-                                Env = BuildEnvVars(registration, blobConn),
+                                Env = BuildEnvVars(registration, blobConn, isWindows),
                                 Resources = new V1ResourceRequirements
                                 {
                                     Requests = new Dictionary<string, ResourceQuantity>
@@ -240,11 +241,13 @@ public class ServiceDeploymentService
         }
     }
 
-    private static List<V1EnvVar> BuildEnvVars(ServiceRegistration reg, string blobConn)
+    private static List<V1EnvVar> BuildEnvVars(ServiceRegistration reg, string blobConn, bool isWindows)
     {
+        var servicesDir = isWindows ? @"C:\app\services" : "/app/services";
+        var sep = isWindows ? @"\" : "/";
         var envVars = new List<V1EnvVar>
         {
-            new() { Name = "SERVICE_DLL_PATH", Value = $"/app/services/{reg.AssemblyName}" },
+            new() { Name = "SERVICE_DLL_PATH", Value = $"{servicesDir}{sep}{reg.AssemblyName}" },
             new() { Name = "BLOB_CONNECTION", Value = blobConn },
             new() { Name = "BLOB_PATH", Value = reg.BlobPath },
             new() { Name = "SERVICE_NAME", Value = reg.ServiceName },
