@@ -1,0 +1,182 @@
+@page "/services"
+@inject ServiceManagerApiClient ServiceManagerApi
+@inject NavigationManager Navigation
+
+<PageTitle>Services - CloudSOA</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Registered Services</h2>
+    <a href="/services/upload" class="btn btn-primary">
+        <i class="bi bi-plus-circle me-1"></i> Register Service
+    </a>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Name</th>
+                    <th>Version</th>
+                    <th>Runtime</th>
+                    <th>Status</th>
+                    <th>Instances</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (services.Any())
+                {
+                    @foreach (var svc in services)
+                    {
+                        <tr>
+                            <td><strong>@svc.ServiceName</strong></td>
+                            <td>@svc.Version</td>
+                            <td><span class="badge bg-secondary">@svc.RuntimeLabel</span></td>
+                            <td><span class="badge @GetStatusBadge(svc.Status)">@svc.Status</span></td>
+                            <td>@svc.Resources.MinInstances / @svc.Resources.MaxInstances</td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    @if (svc.Status != "Running" && svc.Status != "deployed")
+                                    {
+                                        <button class="btn btn-outline-success" @onclick="() => Deploy(svc.ServiceName)"
+                                                disabled="@isLoading">
+                                            <i class="bi bi-play-fill"></i> Deploy
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-outline-warning" @onclick="() => Stop(svc.ServiceName)"
+                                                disabled="@isLoading">
+                                            <i class="bi bi-stop-fill"></i> Stop
+                                        </button>
+                                    }
+                                    <button class="btn btn-outline-primary" @onclick="() => Scale(svc.ServiceName)"
+                                            disabled="@isLoading">
+                                        <i class="bi bi-arrows-angle-expand"></i> Scale
+                                    </button>
+                                    <button class="btn btn-outline-danger" @onclick="() => Delete(svc.ServiceName)"
+                                            disabled="@isLoading">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-4">
+                            No services registered.
+                            <a href="/services/upload">Register your first service</a>.
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div class="alert @statusAlertClass mt-3 alert-dismissible fade show">
+        @statusMessage
+        <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+    </div>
+}
+
+@code {
+    private List<ServiceInfo> services = new();
+    private bool isLoading;
+    private string? statusMessage;
+    private string statusAlertClass = "alert-info";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadServices();
+    }
+
+    private async Task LoadServices()
+    {
+        try
+        {
+            services = await ServiceManagerApi.GetServicesAsync();
+        }
+        catch
+        {
+            statusMessage = "Unable to connect to Service Manager API.";
+            statusAlertClass = "alert-danger";
+        }
+    }
+
+    private async Task Deploy(string serviceName)
+    {
+        isLoading = true;
+        try
+        {
+            await ServiceManagerApi.DeployAsync(serviceName);
+            statusMessage = $"Service '{serviceName}' deployment initiated.";
+            statusAlertClass = "alert-success";
+            await LoadServices();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Deploy failed: {ex.Message}";
+            statusAlertClass = "alert-danger";
+        }
+        finally { isLoading = false; }
+    }
+
+    private async Task Stop(string serviceName)
+    {
+        isLoading = true;
+        try
+        {
+            await ServiceManagerApi.StopAsync(serviceName);
+            statusMessage = $"Service '{serviceName}' stopped.";
+            statusAlertClass = "alert-success";
+            await LoadServices();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Stop failed: {ex.Message}";
+            statusAlertClass = "alert-danger";
+        }
+        finally { isLoading = false; }
+    }
+
+    private async Task Scale(string serviceName)
+    {
+        // TODO: Open a modal for scale input
+        statusMessage = $"Scale dialog for '{serviceName}' — not yet implemented.";
+        statusAlertClass = "alert-info";
+        await Task.CompletedTask;
+    }
+
+    private async Task Delete(string serviceName)
+    {
+        isLoading = true;
+        try
+        {
+            await ServiceManagerApi.DeleteAsync(serviceName);
+            statusMessage = $"Service '{serviceName}' deleted.";
+            statusAlertClass = "alert-success";
+            await LoadServices();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Delete failed: {ex.Message}";
+            statusAlertClass = "alert-danger";
+        }
+        finally { isLoading = false; }
+    }
+
+    private string GetStatusBadge(string status) => status switch
+    {
+        "Running" => "badge-running",
+        "Pending" or "Deploying" => "badge-pending",
+        "Failed" => "badge-failed",
+        _ => "badge-stopped"
+    };
+}

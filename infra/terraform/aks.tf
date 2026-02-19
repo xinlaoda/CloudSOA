@@ -39,17 +39,31 @@ resource "azurerm_kubernetes_cluster_node_pool" "compute" {
   ]
 }
 
+resource "azurerm_kubernetes_cluster_node_pool" "wincompute" {
+  name                  = "wincomp"
+  kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
+  vm_size               = "Standard_D4s_v3"
+  os_type               = "Windows"
+  min_count             = 0
+  max_count             = 20
+  enable_auto_scaling   = true
+  tags                  = var.tags
+
+  node_labels = {
+    "cloudsoa/role" = "compute-windows"
+    "kubernetes.io/os" = "windows"
+  }
+
+  node_taints = [
+    "cloudsoa/role=compute-windows:NoSchedule"
+  ]
+}
+
 resource "azurerm_container_registry" "acr" {
   name                = "${replace(var.prefix, "-", "")}acr"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "Standard"
-  admin_enabled       = false
+  admin_enabled       = true
   tags                = var.tags
-}
-
-resource "azurerm_role_assignment" "aks_acr" {
-  scope                = azurerm_container_registry.acr.id
-  role_definition_name = "AcrPull"
-  principal_id         = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
 }

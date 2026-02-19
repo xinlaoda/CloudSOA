@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: servicemanager
+  namespace: cloudsoa
+  labels:
+    app: servicemanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: servicemanager
+  template:
+    metadata:
+      labels:
+        app: servicemanager
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: servicemanager
+          image: xxincloudsoaacr.azurecr.io/servicemanager:v1.0.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5020
+          env:
+            - name: ConnectionStrings__AzureBlobStorage
+              valueFrom:
+                secretKeyRef:
+                  name: servicemanager-secrets
+                  key: blob-connection-string
+            - name: ConnectionStrings__CosmosDB
+              valueFrom:
+                secretKeyRef:
+                  name: servicemanager-secrets
+                  key: cosmosdb-connection-string
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5020
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5020
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: servicemanager-service
+  namespace: cloudsoa
+spec:
+  type: ClusterIP
+  selector:
+    app: servicemanager
+  ports:
+    - port: 80
+      targetPort: 5020

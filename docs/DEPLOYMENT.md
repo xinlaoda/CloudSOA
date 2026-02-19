@@ -1,24 +1,25 @@
-# CloudSOA 安装部署文档
+# CloudSOA Deployment Guide
 
-## 目录
+## Table of Contents
 
-- [1. 系统概览](#1-系统概览)
-- [2. 环境要求](#2-环境要求)
-- [3. 本地开发部署](#3-本地开发部署)
-- [4. Azure 基础设施部署](#4-azure-基础设施部署)
-- [5. 容器镜像构建](#5-容器镜像构建)
-- [6. AKS 集群部署](#6-aks-集群部署)
-- [7. 配置说明](#7-配置说明)
-- [8. 验证与测试](#8-验证与测试)
-- [9. 监控与告警](#9-监控与告警)
-- [10. 运维手册](#10-运维手册)
-- [11. 故障排除](#11-故障排除)
+- [1. System Overview](#1-system-overview)
+- [2. Prerequisites](#2-prerequisites)
+- [3. Local Development](#3-local-development)
+- [4. Azure Infrastructure Deployment](#4-azure-infrastructure-deployment)
+- [5. Container Image Build](#5-container-image-build)
+- [6. AKS Cluster Deployment](#6-aks-cluster-deployment)
+- [7. Service Components](#7-service-components)
+- [8. Configuration Reference](#8-configuration-reference)
+- [9. Verification & Testing](#9-verification--testing)
+- [10. Monitoring & Alerting](#10-monitoring--alerting)
+- [11. Operations Runbook](#11-operations-runbook)
+- [12. Troubleshooting](#12-troubleshooting)
 
 ---
 
-## 1. 系统概览
+## 1. System Overview
 
-### 1.1 架构图
+### 1.1 Architecture Diagram
 
 ```
                         ┌─────────────────────┐
@@ -36,145 +37,145 @@
             │                AKS Cluster                   │
             │                                              │
             │  ┌───────────────────────────────────────┐   │
-            │  │     CloudSOA.Broker (2+ 副本)          │   │
-            │  │     :5000 REST  :5001 gRPC             │   │
-            │  │     /healthz  /metrics                 │   │
+            │  │  CloudSOA.Broker (2+ replicas)         │   │
+            │  │  :5000 REST  :5001 gRPC                │   │
             │  └──────────────┬────────────────────────┘   │
-            │                 │ gRPC                        │
+            │                 │                             │
             │  ┌──────────────▼────────────────────────┐   │
-            │  │  CloudSOA.ServiceHost (0-50 Pod, KEDA) │   │
-            │  │  :5010 gRPC (ComputeService)           │   │
+            │  │  CloudSOA.ServiceHost     (Linux)      │   │
+            │  │  CloudSOA.ServiceHost.Wcf (Windows)    │   │
+            │  │  0-50 Pods, KEDA auto-scaling          │   │
             │  └───────────────────────────────────────┘   │
             │                                              │
             │  ┌───────────────────────────────────────┐   │
-            │  │  基础设施: Redis | Service Bus | CosmosDB │ │
+            │  │  CloudSOA.ServiceManager               │   │
+            │  │  (Service registry, DLL storage)       │   │
+            │  └───────────────────────────────────────┘   │
+            │                                              │
+            │  ┌───────────────────────────────────────┐   │
+            │  │  CloudSOA.Portal (Web UI)              │   │
+            │  │  Dashboard, Monitoring, Service Mgmt   │   │
+            │  └───────────────────────────────────────┘   │
+            │                                              │
+            │  ┌───────────────────────────────────────┐   │
+            │  │  Infrastructure:                       │   │
+            │  │  Redis | Service Bus | CosmosDB | Blob │   │
             │  └───────────────────────────────────────┘   │
             └──────────────────────────────────────────────┘
 ```
 
-### 1.2 组件清单
+### 1.2 Component Summary
 
-| 组件 | 端口 | 说明 |
-|------|------|------|
-| CloudSOA.Broker | 5000 (REST), 5001 (gRPC) | Session管理、请求路由、调度引擎 |
-| CloudSOA.ServiceHost | 5010 (gRPC) | 计算节点，加载用户服务DLL |
-| Redis | 6379 | Session元数据、请求队列(Streams)、响应缓存 |
-| Azure Service Bus | - | 持久化消息队列 (Durable Session) |
-| Azure CosmosDB | - | Session元数据持久化 (可选) |
-
----
-
-## 2. 环境要求
-
-### 2.1 开发环境
-
-| 工具 | 最低版本 | 安装命令 |
-|------|---------|---------|
-| .NET SDK | 8.0 | `sudo apt install dotnet-sdk-8.0` |
-| Docker | 20.10+ | [官方文档](https://docs.docker.com/engine/install/) |
-| Git | 2.30+ | `sudo apt install git` |
-| Azure CLI | 2.50+ | `curl -sL https://aka.ms/InstallAzureCLIDeb \| sudo bash` |
-| kubectl | 1.27+ | 见下方安装脚本 |
-| Helm | 3.12+ | `curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \| bash` |
-| Terraform | 1.5+ | [官方文档](https://developer.hashicorp.com/terraform/install) |
-
-### 2.2 Azure 资源要求
-
-| 资源 | SKU | 用途 |
-|------|-----|------|
-| AKS 集群 | Standard_D4s_v3 × 3 (system) | 系统节点池 |
-| AKS 计算池 | Standard_D8s_v3 × 0-50 (autoscale) | Service Host Pod |
-| Azure Redis Cache | Standard C1 | Session存储 + 请求队列 |
-| Azure Service Bus | Standard | 持久化消息队列 |
-| Azure CosmosDB | Serverless | Session 元数据 |
-| Azure Container Registry | Standard | 容器镜像仓库 |
-
-### 2.3 网络要求
-
-| 方向 | 端口 | 协议 | 说明 |
-|------|------|------|------|
-| Client → Broker | 443 (HTTPS) | REST/gRPC | 通过 Ingress |
-| Broker → ServiceHost | 5010 | gRPC (HTTP/2) | ClusterIP |
-| Broker → Redis | 6379 | TCP | 集群内部 |
-| Broker → Service Bus | 5671 | AMQP/TLS | Azure 服务 |
+| Component | Port | Description |
+|-----------|------|-------------|
+| CloudSOA.Broker | 5000 (REST), 5001 (gRPC) | Session management, request routing, dispatch engine, cluster metrics |
+| CloudSOA.ServiceHost | 5010 (gRPC) | Linux compute node — loads CoreWCF/.NET 8 service DLLs |
+| CloudSOA.ServiceHost.Wcf | 5010 (gRPC) | Windows compute node — loads existing HPC Pack WCF/.NET Fx DLLs |
+| CloudSOA.ServiceManager | 80 (REST) | Service registry (CosmosDB), DLL storage (Azure Blob), deployment orchestration |
+| CloudSOA.Portal | 80 (HTTP) | Blazor web UI — dashboard, sessions, monitoring, service upload |
+| Redis | 6379 | Session metadata, request queue (Streams), response cache |
+| Azure Service Bus | — | Durable message queue (Durable Sessions) |
+| Azure CosmosDB | — | Service registration metadata (serverless) |
+| Azure Blob Storage | — | Service DLL package storage |
 
 ---
 
-## 3. 本地开发部署
+## 2. Prerequisites
 
-### 3.1 一键安装开发环境
+### 2.1 Development Tools
 
-```bash
-chmod +x scripts/setup-dev.sh
-./scripts/setup-dev.sh
+| Tool | Minimum Version | Installation |
+|------|----------------|--------------|
+| .NET SDK | 8.0 | [dotnet.microsoft.com](https://dotnet.microsoft.com/download/dotnet/8.0) |
+| Docker | 20.10+ | [docs.docker.com](https://docs.docker.com/get-docker/) |
+| Git | 2.30+ | [git-scm.com](https://git-scm.com/) |
+| Azure CLI | 2.50+ | [aka.ms/installazurecli](https://aka.ms/installazurecli) |
+| kubectl | 1.27+ | `az aks install-cli` |
+| Helm | 3.12+ | [helm.sh](https://helm.sh/docs/intro/install/) |
+| Terraform | 1.5+ | [terraform.io](https://developer.hashicorp.com/terraform/install) |
+
+### 2.2 Azure Resource Requirements
+
+| Resource | SKU | Purpose |
+|----------|-----|---------|
+| AKS Cluster | Standard_D2s_v3 × 2 (system) | System node pool (Broker, Portal, ServiceManager) |
+| AKS Compute Pool | Standard_D4s_v3 × 0-50 (autoscale) | ServiceHost pods |
+| Azure Redis Cache | Basic C0 or Standard C1 | Session store + request queue |
+| Azure Service Bus | Standard | Durable message queue |
+| Azure CosmosDB | Serverless | Service registration metadata |
+| Azure Container Registry | Standard | Container image registry |
+| Azure Blob Storage | Standard LRS | Service DLL package storage |
+
+### 2.3 Network Requirements
+
+| Direction | Port | Protocol | Description |
+|-----------|------|----------|-------------|
+| Client → Broker | 443 (HTTPS) | REST/gRPC | Via Ingress/LoadBalancer |
+| Broker → ServiceHost | 5010 | gRPC (HTTP/2) | ClusterIP (internal) |
+| Broker → Redis | 6379 | TCP | Internal |
+| Broker → Service Bus | 5671 | AMQP/TLS | Azure service |
+| Portal → Broker | 80 | HTTP | Internal (ClusterIP) |
+| Portal → ServiceManager | 80 | HTTP | Internal (ClusterIP) |
+
+---
+
+## 3. Local Development
+
+### 3.1 Quick Setup (Windows)
+
+```powershell
+.\scripts\setup-dev.ps1
 ```
 
-### 3.2 手动步骤
-
-#### 3.2.1 安装依赖
+### 3.2 Quick Setup (Linux/macOS)
 
 ```bash
-# 安装 .NET 8 SDK (Ubuntu/Debian)
-wget https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-sudo dpkg -i packages-microsoft-prod.deb
-sudo apt-get update && sudo apt-get install -y dotnet-sdk-8.0
-rm packages-microsoft-prod.deb
+chmod +x scripts/setup-dev.sh && ./scripts/setup-dev.sh
 ```
 
-#### 3.2.2 启动 Redis
+### 3.3 Manual Steps
 
 ```bash
-docker run -d --name cloudsoa-redis \
-  -p 6379:6379 \
-  --restart unless-stopped \
-  redis:7-alpine \
-  redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
-```
+# Install .NET 8 SDK — see https://dotnet.microsoft.com/download/dotnet/8.0
 
-#### 3.2.3 编译与测试
+# Start Redis
+docker run -d --name cloudsoa-redis -p 6379:6379 --restart unless-stopped \
+  redis:7-alpine redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
 
-```bash
-cd /path/to/CloudSOA
+# Build and test
+cd CloudSOA
 dotnet restore
 dotnet build
 dotnet test --filter "Category!=Integration"
+
+# Run Broker
+cd src/CloudSOA.Broker && dotnet run
+# REST: http://localhost:5000  |  gRPC: http://localhost:5001
+# Health: http://localhost:5000/healthz  |  Metrics: http://localhost:5000/metrics
 ```
 
-#### 3.2.4 启动 Broker
+### 3.4 Quick Verification
 
 ```bash
-cd src/CloudSOA.Broker
-dotnet run
-
-# 端点:
-#   REST:   http://localhost:5000
-#   gRPC:   http://localhost:5001
-#   健康:   http://localhost:5000/healthz
-#   指标:   http://localhost:5000/metrics
-```
-
-#### 3.2.5 快速验证
-
-```bash
-# 创建 Session
+# Create a session
 curl -X POST http://localhost:5000/api/v1/sessions \
   -H "Content-Type: application/json" \
   -d '{"serviceName":"TestService","minimumUnits":1,"maximumUnits":10}'
 
-# 使用返回的 sessionId 发送请求
+# Send requests (replace {sessionId})
 curl -X POST http://localhost:5000/api/v1/sessions/{sessionId}/requests \
   -H "Content-Type: application/json" \
   -d '{"requests":[{"action":"Echo","payload":"aGVsbG8=","userData":"test-1"}]}'
 
-# 等待2秒后拉取响应
+# Get responses
 curl http://localhost:5000/api/v1/sessions/{sessionId}/responses
 ```
 
 ---
 
-## 4. Azure 基础设施部署
+## 4. Azure Infrastructure Deployment
 
-### 4.1 前置条件
+### 4.1 Prerequisites
 
 ```bash
 az login
@@ -186,14 +187,19 @@ az provider register --namespace Microsoft.ServiceBus
 az provider register --namespace Microsoft.DocumentDB
 ```
 
-### 4.2 一键部署
+### 4.2 One-Command Deployment
+
+```powershell
+# Windows
+.\scripts\deploy-infra.ps1 -Prefix cloudsoa -Location eastus -Environment dev
+```
 
 ```bash
-chmod +x scripts/deploy-infra.sh
+# Linux
 ./scripts/deploy-infra.sh --prefix cloudsoa --location eastus --environment dev
 ```
 
-### 4.3 手动 Terraform 部署
+### 4.3 Manual Terraform Deployment
 
 ```bash
 cd infra/terraform
@@ -201,57 +207,40 @@ cd infra/terraform
 cat > terraform.tfvars <<EOF
 prefix         = "cloudsoa"
 location       = "eastus"
-aks_node_count = 3
-aks_vm_size    = "Standard_D4s_v3"
-redis_sku      = "Standard"
-redis_capacity = 1
+aks_node_count = 2
+aks_vm_size    = "Standard_D2s_v3"
+redis_sku      = "Basic"
+redis_capacity = 0
 tags = {
   project     = "CloudSOA"
   environment = "dev"
-  owner       = "your-team"
 }
 EOF
 
-# Terraform state 后端存储
-az group create -n cloudsoa-tfstate -l eastus
-az storage account create -n cloudsoatfstate -g cloudsoa-tfstate -l eastus --sku Standard_LRS
-az storage container create -n tfstate --account-name cloudsoatfstate
-
-cat > backend.tfvars <<EOF
-resource_group_name  = "cloudsoa-tfstate"
-storage_account_name = "cloudsoatfstate"
-container_name       = "tfstate"
-key                  = "cloudsoa.terraform.tfstate"
-EOF
-
-terraform init -backend-config=backend.tfvars
+terraform init
 terraform plan -out=tfplan
 terraform apply tfplan
 ```
 
-### 4.4 获取部署凭证
+### 4.4 Retrieve Deployment Credentials
 
 ```bash
 az aks get-credentials --resource-group cloudsoa-rg --name cloudsoa-aks
 kubectl get nodes
-
-ACR_SERVER=$(terraform output -raw acr_login_server)
-REDIS_HOST=$(terraform output -raw redis_hostname)
-REDIS_KEY=$(terraform output -raw redis_primary_key)
 ```
 
 ---
 
-## 5. 容器镜像构建
+## 5. Container Image Build
 
-### 5.1 一键构建
+### 5.1 One-Command Build
 
-```bash
-chmod +x scripts/build-images.sh
-./scripts/build-images.sh --acr cloudsoacr --tag v1.0.0
+```powershell
+# Windows
+.\scripts\build-images.ps1 -AcrName cloudsoacr -Tag v1.0.0
 ```
 
-### 5.2 手动构建
+### 5.2 Manual Build
 
 ```bash
 ACR_NAME="cloudsoacr"
@@ -259,171 +248,305 @@ az acr login --name $ACR_NAME
 ACR_SERVER="${ACR_NAME}.azurecr.io"
 TAG="v1.0.0"
 
+# Broker
 docker build -t ${ACR_SERVER}/broker:${TAG} -f src/CloudSOA.Broker/Dockerfile .
-docker build -t ${ACR_SERVER}/servicehost:${TAG} -f src/CloudSOA.ServiceHost/Dockerfile .
 docker push ${ACR_SERVER}/broker:${TAG}
+
+# ServiceHost (Linux — CoreWCF)
+docker build -t ${ACR_SERVER}/servicehost:${TAG} -f src/CloudSOA.ServiceHost/Dockerfile .
 docker push ${ACR_SERVER}/servicehost:${TAG}
+
+# ServiceHost.Wcf (Windows — existing HPC Pack DLLs)
+docker build -t ${ACR_SERVER}/servicehost-wcf:${TAG} -f src/CloudSOA.ServiceHost.Wcf/Dockerfile.windows .
+docker push ${ACR_SERVER}/servicehost-wcf:${TAG}
+
+# ServiceManager
+docker build -t ${ACR_SERVER}/servicemanager:${TAG} -f src/CloudSOA.ServiceManager/Dockerfile .
+docker push ${ACR_SERVER}/servicemanager:${TAG}
+
+# Portal
+docker build -t ${ACR_SERVER}/portal:${TAG} -f src/CloudSOA.Portal/Dockerfile .
+docker push ${ACR_SERVER}/portal:${TAG}
 ```
 
 ---
 
-## 6. AKS 集群部署
+## 6. AKS Cluster Deployment
 
-### 6.1 一键部署
+### 6.1 One-Command Deployment
 
-```bash
-chmod +x scripts/deploy-k8s.sh
-./scripts/deploy-k8s.sh \
-  --acr cloudsoacr.azurecr.io \
-  --tag v1.0.0 \
-  --redis-host "cloudsoa-redis.redis.cache.windows.net:6380" \
-  --redis-password "<REDIS_KEY>"
+```powershell
+.\scripts\deploy-k8s.ps1 -AcrServer cloudsoacr.azurecr.io -Tag v1.0.0 `
+  -RedisHost "cloudsoa-redis.redis.cache.windows.net:6380" `
+  -RedisPassword "<REDIS_KEY>"
 ```
 
-### 6.2 手动部署
+### 6.2 Manual Deployment
 
 ```bash
-# 1. 命名空间
+# 1. Namespace
 kubectl apply -f deploy/k8s/namespace.yaml
 
 # 2. Secrets
 kubectl create secret generic redis-secret -n cloudsoa \
-  --from-literal=connection-string="${REDIS_HOST}:6380,password=${REDIS_KEY},ssl=True,abortConnect=False"
+  --from-literal=connection-string="${REDIS_HOST},password=${REDIS_KEY},ssl=True,abortConnect=False"
 
-kubectl create secret generic broker-auth -n cloudsoa \
-  --from-literal=api-key="$(openssl rand -hex 32)"
+kubectl create secret generic servicemanager-secrets -n cloudsoa \
+  --from-literal=blob-connection-string="${BLOB_CONN}" \
+  --from-literal=cosmosdb-connection-string="${COSMOS_CONN}"
 
-# 3. ConfigMap + Deployments
-kubectl apply -f deploy/k8s/broker-configmap.yaml
+kubectl create secret docker-registry acr-secret -n cloudsoa \
+  --docker-server=${ACR_SERVER} --docker-username=${ACR_USER} --docker-password=${ACR_PASS}
+
+# 3. RBAC for Broker (K8s API access for pod monitoring)
+kubectl apply -f deploy/k8s/broker-rbac.yaml
+
+# 4. Deployments
 kubectl apply -f deploy/k8s/broker-deployment.yaml
+kubectl apply -f deploy/k8s/servicemanager-deployment.yaml
+kubectl apply -f deploy/k8s/portal-deployment.yaml
 kubectl apply -f deploy/k8s/servicehost-deployment.yaml
 
-# 4. 等待就绪
+# 5. Wait for readiness
 kubectl -n cloudsoa rollout status deployment/broker
+kubectl -n cloudsoa rollout status deployment/servicemanager
+kubectl -n cloudsoa rollout status deployment/portal
 
-# 5. 安装 KEDA
+# 6. (Optional) Install KEDA for auto-scaling
 helm repo add kedacore https://kedacore.github.io/charts
 helm install keda kedacore/keda --namespace keda --create-namespace
 ```
 
-### 6.3 验证
+### 6.3 Verify
 
 ```bash
 kubectl -n cloudsoa get pods
+kubectl -n cloudsoa get svc
+
+# Portal (external)
+PORTAL_IP=$(kubectl -n cloudsoa get svc portal-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo "Portal: http://${PORTAL_IP}"
+
+# Broker health check
 kubectl -n cloudsoa port-forward svc/broker-service 5000:80 &
 curl http://localhost:5000/healthz
 ```
 
 ---
 
-## 7. 配置说明
+## 7. Service Components
 
-### 7.1 Broker 配置项
+### 7.1 Broker (`CloudSOA.Broker`)
 
-| 配置项 | 环境变量 | 默认值 | 说明 |
-|--------|---------|--------|------|
-| Redis 连接串 | `ConnectionStrings__Redis` | `localhost:6379` | Redis 地址 |
-| REST 端口 | `Kestrel__Endpoints__Http__Url` | `http://0.0.0.0:5000` | REST 监听 |
-| gRPC 端口 | `Kestrel__Endpoints__Grpc__Url` | `http://0.0.0.0:5001` | gRPC 监听 |
-| API Key | `Authentication__ApiKey` | *(空=禁用)* | 认证密钥 |
+The Broker is the central hub of CloudSOA. It manages sessions, routes requests through Redis Streams, dispatches work to ServiceHost pods, and caches responses.
 
-### 7.2 ServiceHost 配置项
+**Key features:**
+- Session lifecycle (create, attach, close, timeout)
+- Request batching and dispatching with round-robin load balancing
+- Response caching with TTL and fetch-and-delete semantics
+- Three-tier flow control (Accept / Throttle / Reject)
+- Redis-based leader election for HA
+- Cluster metrics API (pod status, queue depths, health checks)
+- Prometheus metrics and health endpoints
 
-| 配置项 | 环境变量 | 默认值 | 说明 |
-|--------|---------|--------|------|
-| 服务 DLL 路径 | `SERVICE_DLL_PATH` | `/app/services/service.dll` | 用户服务 DLL |
-| 监听端口 | `ASPNETCORE_URLS` | `http://+:5010` | gRPC 监听 |
+**Kubernetes manifest:** `deploy/k8s/broker-deployment.yaml`
 
-### 7.3 配置优先级
+### 7.2 ServiceHost (`CloudSOA.ServiceHost`)
+
+The Linux-based compute node for services built with CoreWCF/.NET 8. It dynamically loads user service DLLs and exposes them via gRPC. Scaled by KEDA based on Redis queue depth.
+
+**Kubernetes manifest:** `deploy/k8s/servicehost-deployment.yaml`
+
+### 7.3 ServiceHost.Wcf (`CloudSOA.ServiceHost.Wcf`)
+
+The Windows container-based compute node for **existing HPC Pack SOA DLLs**. It loads WCF/.NET Framework service DLLs without any code changes. This enables zero-effort migration from HPC Pack SOA.
+
+**Kubernetes manifest:** `deploy/k8s/servicehost-wcf-deployment.yaml`
+
+### 7.4 ServiceManager (`CloudSOA.ServiceManager`)
+
+The service registry and deployment orchestrator. It stores service metadata in CosmosDB and service DLL packages in Azure Blob Storage.
+
+**Key features:**
+- Service registration (upload DLL + config)
+- Service deployment to AKS (creates K8s Deployments)
+- Service lifecycle management (start, stop, scale)
+- DLL storage in Azure Blob
+
+**Kubernetes manifest:** `deploy/k8s/servicemanager-deployment.yaml`
+
+### 7.5 Portal (`CloudSOA.Portal`)
+
+A Blazor Server web application providing a management UI for CloudSOA, similar to HPC Pack SOA's management console.
+
+**Pages:**
+- **Dashboard** (`/`) — Cluster health overview, active sessions, running services
+- **Services** (`/services`) — Registered services list, deploy/stop actions
+- **Service Upload** (`/services/upload`) — Upload new service DLL + config
+- **Sessions** (`/sessions`) — Active and closed sessions list
+- **Monitoring** (`/monitoring`) — Pod status, queue depths, cluster health
+
+**Kubernetes manifest:** `deploy/k8s/portal-deployment.yaml`
+
+### 7.6 Client SDK (`CloudSOA.Client`)
+
+A .NET client library providing two API styles:
+
+| API Style | Classes | Use Case |
+|-----------|---------|----------|
+| HPC Pack-compatible | `Session`, `DurableSession`, `BrokerClient<T>`, `BrokerResponse<T>` | Migrating existing HPC Pack SOA clients (one-line namespace change) |
+| Simplified | `CloudSession`, `CloudBrokerClient` | New services, no WCF message contracts needed |
+
+**NuGet:** `CloudSOA.Client` (targets netstandard2.0 + net8.0)
+
+---
+
+## 8. Configuration Reference
+
+### 8.1 Broker Configuration
+
+| Config Key | Environment Variable | Default | Description |
+|------------|---------------------|---------|-------------|
+| Redis connection | `ConnectionStrings__Redis` | `localhost:6379` | Redis address |
+| REST port | `Kestrel__Endpoints__Http__Url` | `http://0.0.0.0:5000` | REST listener |
+| gRPC port | `Kestrel__Endpoints__Grpc__Url` | `http://0.0.0.0:5001` | gRPC listener |
+| API Key | `Authentication__ApiKey` | *(empty=disabled)* | Auth key |
+
+### 8.2 ServiceManager Configuration
+
+| Config Key | Environment Variable | Default | Description |
+|------------|---------------------|---------|-------------|
+| Blob connection | `AzureBlob__ConnectionString` | — | Azure Blob Storage connection string |
+| CosmosDB connection | `CosmosDb__ConnectionString` | — | Azure CosmosDB connection string |
+
+### 8.3 Portal Configuration
+
+| Config Key | Environment Variable | Default | Description |
+|------------|---------------------|---------|-------------|
+| Broker URL | `ApiEndpoints__Broker` | `http://broker-service` | Internal Broker service URL |
+| ServiceManager URL | `ApiEndpoints__ServiceManager` | `http://servicemanager-service` | Internal ServiceManager URL |
+
+### 8.4 Configuration Priority
 
 ```
-环境变量 > appsettings.{Environment}.json > appsettings.json > 代码默认值
+Environment variables > appsettings.{Environment}.json > appsettings.json > Code defaults
 ```
 
 ---
 
-## 8. 验证与测试
+## 9. Verification & Testing
 
-### 8.1 冒烟测试
+### 9.1 Smoke Test
 
-```bash
-chmod +x scripts/smoke-test.sh
-./scripts/smoke-test.sh http://localhost:5000
+```powershell
+.\scripts\smoke-test.ps1 -BrokerUrl http://localhost:5000    # Windows
 ```
 
-### 8.2 验证清单
+```bash
+./scripts/smoke-test.sh http://localhost:5000                 # Linux
+```
 
-| # | 测试项 | 命令 | 预期 |
-|---|--------|------|------|
-| 1 | 健康检查 | `curl /healthz` | `Healthy` (200) |
-| 2 | 指标端点 | `curl /metrics` | Prometheus 格式 |
-| 3 | 创建 Session | `POST /api/v1/sessions` | 201 |
-| 4 | 发送请求 | `POST .../requests` | 202, enqueued>0 |
-| 5 | 拉取响应 | `GET .../responses` | 200, count>0 |
-| 6 | 关闭 Session | `DELETE .../sessions/{id}` | 204 |
-| 7 | 404 场景 | `GET .../sessions/invalid` | 404 |
+### 9.2 Verification Checklist
+
+| # | Test | Command | Expected |
+|---|------|---------|----------|
+| 1 | Health check | `curl /healthz` | `Healthy` (200) |
+| 2 | Metrics endpoint | `curl /metrics` | Prometheus format |
+| 3 | Create session | `POST /api/v1/sessions` | 201 |
+| 4 | Send requests | `POST .../requests` | 202, enqueued>0 |
+| 5 | Get responses | `GET .../responses` | 200, count>0 |
+| 6 | Close session | `DELETE .../sessions/{id}` | 204 |
+| 7 | 404 scenario | `GET .../sessions/invalid` | 404 |
+| 8 | List services | `GET /api/v1/services` (ServiceManager) | 200, array |
+| 9 | Cluster metrics | `GET /api/v1/metrics` (Broker) | 200, pod data |
+| 10 | Portal loads | `GET http://<portal-ip>/` | 200, HTML |
 
 ---
 
-## 9. 监控与告警
+## 10. Monitoring & Alerting
 
-### 9.1 Prometheus 指标
+### 10.1 Prometheus Metrics
 
-| 指标名 | 类型 | 说明 |
-|--------|------|------|
-| `cloudsoa_sessions_active` | Gauge | 活跃 Session 数 |
-| `cloudsoa_sessions_created_total` | Counter | 累计创建数 |
-| `cloudsoa_requests_enqueued_total` | Counter | 入队请求数 |
-| `cloudsoa_requests_processed_total` | Counter | 已处理数 |
-| `cloudsoa_requests_failed_total` | Counter | 失败数 |
-| `cloudsoa_queue_depth` | Gauge | 队列深度 |
-| `cloudsoa_request_duration_seconds` | Histogram | 处理耗时 |
+| Metric | Type | Description |
+|--------|------|-------------|
+| `cloudsoa_sessions_active` | Gauge | Active sessions |
+| `cloudsoa_sessions_created_total` | Counter | Total sessions created |
+| `cloudsoa_requests_enqueued_total` | Counter | Enqueued requests |
+| `cloudsoa_requests_processed_total` | Counter | Processed requests |
+| `cloudsoa_requests_failed_total` | Counter | Failed requests |
+| `cloudsoa_queue_depth` | Gauge | Queue depth |
+| `cloudsoa_request_duration_seconds` | Histogram | Processing latency |
 
-### 9.2 推荐告警
+### 10.2 Portal Monitoring
 
-| 告警 | 条件 | 严重程度 |
-|------|------|---------|
-| Broker 不可用 | Pod Ready < 1 持续 1min | Critical |
-| 队列积压 | queue_depth > 5000 持续 5min | Warning |
-| 高错误率 | failed/total > 5% 持续 3min | Warning |
-| 高延迟 | P99 > 10s 持续 5min | Warning |
+The Portal at `http://<portal-ip>/monitoring` provides a real-time view of:
+- Broker pod status (name, node, CPU, memory, restarts)
+- ServiceHost pod status
+- Queue depths (pending, processing)
 
----
+### 10.3 Recommended Alerts
 
-## 10. 运维手册
-
-### 10.1 常用命令
-
-```bash
-kubectl -n cloudsoa get pods -o wide                       # 查看 Pod
-kubectl -n cloudsoa logs -l app=broker --tail=100 -f       # 查看日志
-kubectl -n cloudsoa scale deployment/broker --replicas=3   # 扩缩容
-kubectl -n cloudsoa rollout undo deployment/broker         # 回滚
-kubectl -n cloudsoa get hpa                                # HPA 状态
-```
-
-### 10.2 版本更新
-
-```bash
-./scripts/build-images.sh --acr cloudsoacr --tag v1.1.0
-./scripts/deploy-k8s.sh --tag v1.1.0
-./scripts/smoke-test.sh http://localhost:5000
-# 失败时回滚: kubectl -n cloudsoa rollout undo deployment/broker
-```
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| Broker unavailable | Pod Ready < 1 for 1min | Critical |
+| Queue backlog | queue_depth > 5000 for 5min | Warning |
+| High error rate | failed/total > 5% for 3min | Warning |
+| High latency | P99 > 10s for 5min | Warning |
 
 ---
 
-## 11. 故障排除
+## 11. Operations Runbook
 
-| 问题 | 原因 | 排查 | 修复 |
-|------|------|------|------|
-| Broker 启动失败 | Redis 连接超时 | 查看 Pod 日志 grep Redis | 检查 ConfigMap Redis 配置 |
-| 请求无响应 | Dispatcher 未启动 | 日志 grep Dispatch | 确认 ServiceHost Pod 就绪 |
-| gRPC UNAVAILABLE | HTTP/2 未配置 | 检查 Kestrel 配置 | 设置 Protocols=Http2 |
-| KEDA 不伸缩 | 配置错误 | `describe scaledobject` | 检查 Redis 地址和队列名 |
+### 11.1 Common Commands
 
 ```bash
-# 全面诊断
-chmod +x scripts/diagnose.sh
-./scripts/diagnose.sh
+kubectl -n cloudsoa get pods -o wide                       # List pods
+kubectl -n cloudsoa logs -l app=broker --tail=100 -f       # Stream logs
+kubectl -n cloudsoa scale deployment/broker --replicas=3   # Scale
+kubectl -n cloudsoa rollout undo deployment/broker         # Rollback
+kubectl -n cloudsoa get hpa                                # HPA status
+```
+
+### 11.2 Version Update
+
+```powershell
+# Windows
+.\scripts\build-images.ps1 -AcrName cloudsoacr -Tag v1.1.0
+.\scripts\deploy-k8s.ps1 -AcrServer cloudsoacr.azurecr.io -Tag v1.1.0
+.\scripts\smoke-test.ps1 -BrokerUrl http://localhost:5000
+
+# Rollback on failure
+kubectl -n cloudsoa rollout undo deployment/broker
+```
+
+### 11.3 Upload a New Service DLL
+
+```bash
+# Via API
+curl -X POST http://<servicemanager>/api/v1/services \
+  -F "config=@MyService.cloudsoa.config" \
+  -F "assembly=@MyService.dll"
+
+# Deploy
+curl -X POST http://<servicemanager>/api/v1/services/MyService/deploy
+```
+
+---
+
+## 12. Troubleshooting
+
+| Problem | Cause | Diagnosis | Fix |
+|---------|-------|-----------|-----|
+| Broker won't start | Redis connection timeout | Check pod logs for Redis errors | Verify ConfigMap Redis config |
+| Requests get no response | Dispatcher not started | Grep logs for "Dispatch" | Ensure ServiceHost pods are ready |
+| gRPC UNAVAILABLE | HTTP/2 not configured | Check Kestrel config | Set Protocols=Http2 |
+| KEDA doesn't scale | Config error | `describe scaledobject` | Check Redis address and queue name |
+| Portal shows no data | Broker API unreachable | Exec into Portal pod, test connectivity | Verify ApiEndpoints env vars |
+| Monitoring pods empty | RBAC missing | Check Broker logs for 403 | Apply `deploy/k8s/broker-rbac.yaml` |
+| Service upload fails | Blob Storage unreachable | Check ServiceManager logs | Verify `servicemanager-secrets` |
+
+```bash
+# Full diagnostics
+./scripts/diagnose.ps1   # Windows
+./scripts/diagnose.sh    # Linux
 ```

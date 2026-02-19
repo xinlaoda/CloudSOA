@@ -1,0 +1,23 @@
+@inherits LayoutComponentBase
+
+<div class="app-container">
+    <nav class="sidebar">
+        <div class="sidebar-brand">
+            <i class="bi bi-cloud-fill me-2"></i>CloudSOA
+        </div>
+        <NavMenu />
+    </nav>
+
+    <div class="main-wrapper">
+        <header class="top-bar">
+            <h1>CloudSOA Management Portal</h1>
+            <span class="text-muted small">
+                <i class="bi bi-circle-fill text-success me-1" style="font-size: 0.5rem;"></i>Connected
+            </span>
+        </header>
+
+        <main class="main-content">
+            @Body
+        </main>
+    </div>
+</div>

@@ -1,0 +1,168 @@
+@page "/services/upload"
+@inject ServiceManagerApiClient ServiceManagerApi
+@inject NavigationManager Navigation
+
+<PageTitle>Register Service - CloudSOA</PageTitle>
+
+<div class="d-flex align-items-center mb-3">
+    <a href="/services" class="btn btn-outline-secondary btn-sm me-3">
+        <i class="bi bi-arrow-left"></i> Back
+    </a>
+    <h2 class="mb-0">Register New Service</h2>
+</div>
+
+<div class="card" style="max-width: 700px;">
+    <div class="card-body">
+        <EditForm Model="model" OnValidSubmit="HandleSubmit" FormName="ServiceUpload">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="text-danger" />
+
+            <div class="mb-3">
+                <label class="form-label">Service Name</label>
+                <InputText class="form-control" @bind-Value="model.ServiceName" placeholder="e.g. MyCalculationService" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Version</label>
+                <InputText class="form-control" @bind-Value="model.Version" placeholder="e.g. 1.0.0" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Runtime</label>
+                <InputSelect class="form-select" @bind-Value="model.Runtime">
+                    <option value="">Select runtime...</option>
+                    <option value="WcfLegacy">WCF Legacy</option>
+                    <option value="Net8Native">.NET 8 Native</option>
+                </InputSelect>
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label class="form-label">Min Instances</label>
+                    <InputNumber class="form-control" @bind-Value="model.MinInstances" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Max Instances</label>
+                    <InputNumber class="form-control" @bind-Value="model.MaxInstances" />
+                </div>
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label class="form-label">CPU Request (millicores)</label>
+                    <InputNumber class="form-control" @bind-Value="model.CpuMillicores" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Memory (MB)</label>
+                    <InputNumber class="form-control" @bind-Value="model.MemoryMb" />
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Service DLL</label>
+                <InputFile class="form-control" OnChange="OnDllSelected" accept=".dll" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Configuration File (optional)</label>
+                <InputFile class="form-control" OnChange="OnConfigSelected" accept=".xml,.json" />
+            </div>
+
+            <hr />
+
+            <div class="d-flex justify-content-end gap-2">
+                <a href="/services" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary" disabled="@isUploading">
+                    @if (isUploading)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    <i class="bi bi-upload me-1"></i> Register Service
+                </button>
+            </div>
+        </EditForm>
+
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <div class="alert @statusAlertClass mt-3">@statusMessage</div>
+        }
+    </div>
+</div>
+
+@code {
+    private ServiceUploadModel model = new();
+    private IBrowserFile? dllFile;
+    private IBrowserFile? configFile;
+    private bool isUploading;
+    private string? statusMessage;
+    private string statusAlertClass = "alert-info";
+
+    private void OnDllSelected(InputFileChangeEventArgs e)
+    {
+        dllFile = e.File;
+    }
+
+    private void OnConfigSelected(InputFileChangeEventArgs e)
+    {
+        configFile = e.File;
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (dllFile == null)
+        {
+            statusMessage = "Please select a service DLL file.";
+            statusAlertClass = "alert-warning";
+            return;
+        }
+
+        isUploading = true;
+        statusMessage = null;
+
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            content.Add(new StringContent(model.ServiceName), "serviceName");
+            content.Add(new StringContent(model.Version), "version");
+            content.Add(new StringContent(model.Runtime), "runtime");
+            content.Add(new StringContent(model.MinInstances.ToString()), "minInstances");
+            content.Add(new StringContent(model.MaxInstances.ToString()), "maxInstances");
+            content.Add(new StringContent(model.CpuMillicores.ToString()), "cpuMillicores");
+            content.Add(new StringContent(model.MemoryMb.ToString()), "memoryMb");
+
+            var dllStream = dllFile.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+            content.Add(new StreamContent(dllStream), "serviceDll", dllFile.Name);
+
+            if (configFile != null)
+            {
+                var configStream = configFile.OpenReadStream(maxAllowedSize: 1024 * 1024);
+                content.Add(new StreamContent(configStream), "configFile", configFile.Name);
+            }
+
+            await ServiceManagerApi.RegisterServiceAsync(content);
+
+            statusMessage = $"Service '{model.ServiceName}' registered successfully.";
+            statusAlertClass = "alert-success";
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Upload failed: {ex.Message}";
+            statusAlertClass = "alert-danger";
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    public class ServiceUploadModel
+    {
+        public string ServiceName { get; set; } = string.Empty;
+        public string Version { get; set; } = "1.0.0";
+        public string Runtime { get; set; } = string.Empty;
+        public int MinInstances { get; set; } = 1;
+        public int MaxInstances { get; set; } = 10;
+        public int CpuMillicores { get; set; } = 500;
+        public int MemoryMb { get; set; } = 512;
+    }
+}

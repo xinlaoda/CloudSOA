@@ -10,10 +10,47 @@ namespace CloudSOA.Broker.Controllers;
 public class SessionsController : ControllerBase
 {
     private readonly ISessionManager _sessionManager;
+    private readonly ISessionStore _sessionStore;
+    private readonly IRequestQueue _requestQueue;
+    private readonly IResponseStore _responseStore;
 
-    public SessionsController(ISessionManager sessionManager)
+    public SessionsController(
+        ISessionManager sessionManager,
+        ISessionStore sessionStore,
+        IRequestQueue requestQueue,
+        IResponseStore responseStore)
     {
         _sessionManager = sessionManager;
+        _sessionStore = sessionStore;
+        _requestQueue = requestQueue;
+        _responseStore = responseStore;
+    }
+
+    /// <summary>List all active sessions.</summary>
+    [HttpGet]
+    public async Task<IActionResult> ListSessions(CancellationToken ct)
+    {
+        var sessions = await _sessionStore.ListAsync(ct);
+        var result = new List<object>();
+
+        foreach (var s in sessions)
+        {
+            var pending = await _requestQueue.GetQueueDepthAsync(s.SessionId, ct);
+            var responses = await _responseStore.GetCountAsync(s.SessionId, ct);
+            result.Add(new
+            {
+                id = s.SessionId,
+                serviceName = s.ServiceName,
+                status = s.State.ToString(),
+                createdAt = s.CreatedAt,
+                lastAccessedAt = s.LastAccessedAt,
+                clientId = s.ClientId,
+                requestCount = pending,
+                responseCount = responses
+            });
+        }
+
+        return Ok(result);
     }
 
     [HttpPost]

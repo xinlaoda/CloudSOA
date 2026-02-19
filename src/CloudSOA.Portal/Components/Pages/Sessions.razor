@@ -1,0 +1,157 @@
+@page "/sessions"
+@inject BrokerApiClient BrokerApi
+
+<PageTitle>Sessions - CloudSOA</PageTitle>
+
+<h2 class="mb-3">Sessions</h2>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row g-2">
+            <div class="col-md-4">
+                <input type="text" class="form-control" placeholder="Search by service name..."
+                       @bind="searchTerm" @bind:event="oninput" />
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" @bind="statusFilter">
+                    <option value="">All Statuses</option>
+                    <option value="Active">Active</option>
+                    <option value="Running">Running</option>
+                    <option value="Closed">Closed</option>
+                    <option value="Faulted">Faulted</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-outline-primary w-100" @onclick="LoadSessions">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Session ID</th>
+                    <th>Service</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Requests</th>
+                    <th>Responses</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (FilteredSessions.Any())
+                {
+                    @foreach (var session in FilteredSessions)
+                    {
+                        <tr>
+                            <td><code>@session.Id[..Math.Min(12, session.Id.Length)]</code></td>
+                            <td>@session.ServiceName</td>
+                            <td><span class="badge @GetStatusBadge(session.Status)">@session.Status</span></td>
+                            <td>@session.CreatedAt.ToString("g")</td>
+                            <td>@session.RequestCount</td>
+                            <td>@session.ResponseCount</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewDetails(session.Id)">
+                                    <i class="bi bi-eye"></i> Details
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr><td colspan="7" class="text-center text-muted py-4">No sessions found</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (selectedSession != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Session Details</h5>
+                    <button type="button" class="btn-close" @onclick="CloseDetails"></button>
+                </div>
+                <div class="modal-body">
+                    <dl class="row">
+                        <dt class="col-sm-4">Session ID</dt>
+                        <dd class="col-sm-8"><code>@selectedSession.Id</code></dd>
+                        <dt class="col-sm-4">Service</dt>
+                        <dd class="col-sm-8">@selectedSession.ServiceName</dd>
+                        <dt class="col-sm-4">Status</dt>
+                        <dd class="col-sm-8">
+                            <span class="badge @GetStatusBadge(selectedSession.Status)">@selectedSession.Status</span>
+                        </dd>
+                        <dt class="col-sm-4">Created</dt>
+                        <dd class="col-sm-8">@selectedSession.CreatedAt.ToString("F")</dd>
+                        <dt class="col-sm-4">Requests</dt>
+                        <dd class="col-sm-8">@selectedSession.RequestCount</dd>
+                        <dt class="col-sm-4">Responses</dt>
+                        <dd class="col-sm-8">@selectedSession.ResponseCount</dd>
+                    </dl>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CloseDetails">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<SessionSummary> sessions = new();
+    private string searchTerm = string.Empty;
+    private string statusFilter = string.Empty;
+    private SessionSummary? selectedSession;
+
+    private IEnumerable<SessionSummary> FilteredSessions => sessions
+        .Where(s => string.IsNullOrEmpty(searchTerm)
+            || s.ServiceName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+        .Where(s => string.IsNullOrEmpty(statusFilter) || s.Status == statusFilter)
+        .OrderByDescending(s => s.CreatedAt);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSessions();
+    }
+
+    private async Task LoadSessions()
+    {
+        try
+        {
+            sessions = await BrokerApi.GetSessionsAsync();
+        }
+        catch
+        {
+            sessions = new();
+        }
+    }
+
+    private void ViewDetails(string sessionId)
+    {
+        selectedSession = sessions.FirstOrDefault(s => s.Id == sessionId);
+    }
+
+    private void CloseDetails()
+    {
+        selectedSession = null;
+    }
+
+    private string GetStatusBadge(string status) => status switch
+    {
+        "Running" or "Active" => "badge-running",
+        "Pending" => "badge-pending",
+        "Failed" or "Faulted" => "badge-failed",
+        _ => "badge-stopped"
+    };
+}

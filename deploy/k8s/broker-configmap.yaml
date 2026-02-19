@@ -8,3 +8,5 @@ data:
   Kestrel__Endpoints__Http__Url: "http://0.0.0.0:5000"
   Kestrel__Endpoints__Grpc__Url: "http://0.0.0.0:5001"
   Kestrel__Endpoints__Grpc__Protocols: "Http2"
+  ServiceManager__BaseUrl: "http://servicemanager-service"
+  ConnectionStrings__BlobStorage: "<BLOB_CONNECTION_STRING_PLACEHOLDER>"

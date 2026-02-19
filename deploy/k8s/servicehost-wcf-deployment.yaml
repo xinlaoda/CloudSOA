@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: servicehost-wcf
+  namespace: cloudsoa
+  labels:
+    app: servicehost-wcf
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: servicehost-wcf
+  template:
+    metadata:
+      labels:
+        app: servicehost-wcf
+    spec:
+      nodeSelector:
+        kubernetes.io/os: windows
+        cloudsoa/role: compute-windows
+      tolerations:
+        - key: cloudsoa/role
+          value: compute-windows
+          effect: NoSchedule
+      containers:
+        - name: servicehost-wcf
+          image: cloudsoa.azurecr.io/servicehost-wcf:latest
+          ports:
+            - containerPort: 5010
+          env:
+            - name: SERVICE_DLL_PATH
+              value: ""
+            - name: BLOB_CONNECTION_STRING
+              valueFrom:
+                configMapKeyRef:
+                  name: broker-config
+                  key: ConnectionStrings__BlobStorage
+            - name: BLOB_PATH
+              value: ""
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: "2000m"
+              memory: 1Gi

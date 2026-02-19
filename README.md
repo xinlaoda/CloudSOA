@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/)
 
-A cloud-native SOA Broker service that replaces Microsoft HPC Pack Head Node + Broker Node, deployed on Azure Kubernetes Service (AKS).
+A cloud-native SOA Broker service that replaces Microsoft HPC Pack Head Node + Broker Node, deployed on Azure Kubernetes Service (AKS). Existing HPC Pack SOA service DLLs (WCF/.NET Framework) can run **without code changes** — only the client needs a one-line namespace swap.
 
 ## ✨ Features
 
@@ -13,10 +13,12 @@ A cloud-native SOA Broker service that replaces Microsoft HPC Pack Head Node + B
 - **Response Caching** — Redis-backed response store with TTL and fetch-and-delete semantics
 - **Dual Protocol** — REST API + gRPC for all operations
 - **Client SDK** — Drop-in replacement for HPC Pack SOA client (change namespace only)
+- **WCF Service Hosting** — Run existing HPC Pack SOA DLLs in Windows containers, no recompilation
+- **Service Management** — Upload, deploy, and monitor service DLLs via Portal or API
 - **Auto-Scaling** — KEDA-based scaling on queue depth (0→50 pods)
 - **Flow Control** — Three-tier back-pressure: Accept / Throttle / Reject
 - **Leader Election** — Redis-based leader election for dispatcher coordination
-- **Observability** — Prometheus metrics at `/metrics`, health checks at `/healthz`
+- **Observability** — Prometheus metrics at `/metrics`, health checks at `/healthz`, web-based Portal
 - **Authentication** — API Key middleware (production: Azure AD / JWT)
 
 ## 📐 Architecture
@@ -32,8 +34,12 @@ A cloud-native SOA Broker service that replaces Microsoft HPC Pack Head Node + B
         │                  └── Response Cache (Redis)
         │  gRPC
         ▼
-  CloudSOA.ServiceHost (0-50 pods, KEDA)
-        └── User Service DLL (dynamic loading)
+  CloudSOA.ServiceHost      (Linux, CoreWCF — new services)
+  CloudSOA.ServiceHost.Wcf  (Windows container — existing HPC Pack DLLs)
+        └── User Service DLL (dynamic loading from Azure Blob)
+
+  CloudSOA.ServiceManager   (Service registry, DLL storage, deployment)
+  CloudSOA.Portal           (Web UI — dashboard, monitoring, service management)
 ```
 
 ## 🚀 Quick Start
@@ -47,7 +53,8 @@ A cloud-native SOA Broker service that replaces Microsoft HPC Pack Head Node + B
 
 ```bash
 # 1. Install dev environment
-./scripts/setup-dev.sh
+./scripts/setup-dev.sh     # Linux/macOS
+./scripts/setup-dev.ps1    # Windows
 
 # 2. Start Redis
 docker run -d --name cloudsoa-redis -p 6379:6379 redis:7-alpine
@@ -59,54 +66,129 @@ cd src/CloudSOA.Broker && dotnet run
 curl http://localhost:5000/healthz
 ```
 
-### Client SDK Usage
+## 📦 Migrating an Existing HPC Pack SOA Service
 
+If you have a WCF service DLL that currently runs on HPC Pack SOA (e.g. `CalculatorService.dll`), you can deploy it to CloudSOA **without changing the DLL**. Only two things change:
+
+### Step 1 — Create a Service Configuration File
+
+Create a `.cloudsoa.config` XML file describing your service:
+
+```xml
+<?xml version="1.0" encoding="utf-8" ?>
+<ServiceRegistration xmlns="urn:cloudsoa:service-config">
+  <ServiceName>CalculatorService</ServiceName>
+  <Version>1.0.0</Version>
+  <Runtime>wcf-netfx</Runtime>                                <!-- existing .NET Fx WCF DLL -->
+  <AssemblyName>CalculatorService.dll</AssemblyName>
+  <ServiceContractType>CalculatorService.ICalculator</ServiceContractType>
+  <Resources>
+    <MinInstances>1</MinInstances>
+    <MaxInstances>5</MaxInstances>
+    <CpuPerInstance>250m</CpuPerInstance>
+    <MemoryPerInstance>256Mi</MemoryPerInstance>
+  </Resources>
+</ServiceRegistration>
+```
+
+The `Runtime` field determines which host is used:
+
+| Runtime | Host | Container | Description |
+|---------|------|-----------|-------------|
+| `wcf-netfx` | ServiceHost.Wcf | Windows | Existing HPC Pack SOA DLLs (WCF/.NET Framework) |
+| `corewcf` | ServiceHost | Linux | New services using CoreWCF/.NET 8 |
+
+### Step 2 — Upload via Portal or API
+
+**Via Portal** — Navigate to `http://<portal-ip>/services/upload`, select your DLL and config file, then click Upload.
+
+**Via API:**
+
+```bash
+# Register the service
+curl -X POST http://<servicemanager>/api/v1/services \
+  -F "config=@CalculatorService.cloudsoa.config" \
+  -F "assembly=@CalculatorService.dll"
+
+# Deploy it
+curl -X POST http://<servicemanager>/api/v1/services/CalculatorService/deploy
+```
+
+### Step 3 — Update Client Code (one-line change)
+
+The only change in your client code is the `using` statement — replace the HPC Pack namespace with `CloudSOA.Client`:
+
+```diff
+- using Microsoft.Hpc.Scheduler.Session;
++ using CloudSOA.Client;
+```
+
+All the HPC Pack types are available: `Session`, `DurableSession`, `BrokerClient<T>`, `BrokerResponse<T>`, `SessionStartInfo`.
+
+**Before (HPC Pack):**
+```csharp
+using Microsoft.Hpc.Scheduler.Session;
+
+SessionStartInfo info = new SessionStartInfo("my-headnode", "CalculatorService");
+using (Session session = Session.CreateSession(info))
+{
+    using (BrokerClient<ICalculator> client = new BrokerClient<ICalculator>(session))
+    {
+        client.SendRequest<AddRequest>(new AddRequest(1, 2));
+        client.EndRequests();
+        foreach (BrokerResponse<AddResponse> resp in client.GetResponses<AddResponse>())
+            Console.WriteLine(resp.Result.AddResult);
+    }
+    session.Close();
+}
+```
+
+**After (CloudSOA) — only the using and connection string change:**
 ```csharp
 using CloudSOA.Client;
 
-// Create session (replaces Microsoft.Hpc.Scheduler.Session)
-var session = await CloudSession.CreateSessionAsync(
-    new SessionStartInfo("http://broker:5000", "MyService")
+SessionStartInfo info = new SessionStartInfo("http://broker:5000", "CalculatorService");
+using (Session session = Session.CreateSession(info))
+{
+    using (BrokerClient<ICalculator> client = new BrokerClient<ICalculator>(session))
     {
-        MinimumUnits = 4,
-        MaximumUnits = 100
-    });
-
-// Send requests
-using var client = new CloudBrokerClient(session);
-client.SendRequest("Calculate", payload, "item-1");
-client.SendRequest("Calculate", payload, "item-2");
-await client.EndRequestsAsync();
-
-// Get responses
-var responses = await client.GetAllResponsesAsync(expectedCount: 2);
-foreach (var resp in responses)
-    Console.WriteLine(resp.GetPayloadString());
-
-await session.CloseAsync();
+        client.SendRequest<AddRequest>(new AddRequest(1, 2));
+        client.EndRequests();
+        foreach (BrokerResponse<AddResponse> resp in client.GetResponses<AddResponse>())
+            Console.WriteLine(resp.Result.AddResult);
+    }
+    session.Close();
+}
 ```
+
+> 💡 For new services that don't need WCF compatibility, use the **simplified API** with `CloudSession` and `CloudBrokerClient` — see `samples/CalculatorClient/` for both styles.
 
 ## 🏗️ Project Structure
 
 ```
 CloudSOA/
 ├── src/
-│   ├── CloudSOA.Common/          Shared models, interfaces, enums
-│   ├── CloudSOA.Broker/          Main Broker service
-│   │   ├── Controllers/          REST API endpoints
-│   │   ├── Services/             Session Manager + gRPC service
-│   │   ├── Queue/                Request queue + Response store
-│   │   ├── Dispatch/             Dispatcher engine
-│   │   ├── HA/                   Leader election
-│   │   ├── Metrics/              Prometheus metrics
-│   │   └── Protos/               gRPC proto definitions
-│   ├── CloudSOA.ServiceHost/     Compute node (loads user DLLs)
-│   └── CloudSOA.Client/          Client SDK
-├── tests/                        Unit + Integration tests
-├── deploy/k8s/                   Kubernetes manifests
-├── infra/terraform/              Azure infrastructure (IaC)
-├── scripts/                      Build, deploy, test scripts
-└── docs/                         Documentation
+│   ├── CloudSOA.Common/            Shared models, interfaces, enums
+│   ├── CloudSOA.Broker/            Session management, request routing, dispatch
+│   │   ├── Controllers/            REST API (sessions, metrics)
+│   │   ├── Services/               gRPC service, session manager
+│   │   ├── Queue/                  Redis Streams request queue + response store
+│   │   ├── Dispatch/               Dispatcher engine
+│   │   ├── HA/                     Leader election
+│   │   └── Metrics/                Prometheus metrics
+│   ├── CloudSOA.ServiceHost/       Linux compute node (CoreWCF, new services)
+│   ├── CloudSOA.ServiceHost.Wcf/   Windows compute node (WCF/.NET Fx, existing DLLs)
+│   ├── CloudSOA.ServiceManager/    Service registry + DLL storage (Azure Blob + CosmosDB)
+│   ├── CloudSOA.Portal/            Blazor web UI (dashboard, monitoring, service mgmt)
+│   └── CloudSOA.Client/            Client SDK (HPC Pack-compatible + simplified API)
+├── samples/
+│   ├── CalculatorService/          Sample WCF service DLL (ICalculator)
+│   └── CalculatorClient/           Sample client (HPC-compat + raw API examples)
+├── tests/                          Unit + Integration tests
+├── deploy/k8s/                     Kubernetes manifests
+├── infra/terraform/                Azure infrastructure (IaC)
+├── scripts/                        Build, deploy, test scripts (sh + ps1)
+└── docs/                           Documentation
 ```
 
 ## 🧪 Testing
@@ -119,37 +201,33 @@ dotnet test --filter "Category!=Integration"
 dotnet test --filter "Category=Integration"
 
 # Smoke test
-./scripts/smoke-test.sh http://localhost:5000
-
-# Load test
-./scripts/load-test.sh http://localhost:5000 --requests 1000 --concurrency 10
+./scripts/smoke-test.ps1 -BrokerUrl http://localhost:5000    # Windows
+./scripts/smoke-test.sh http://localhost:5000                 # Linux
 ```
 
 ## 🚢 Deployment
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed deployment guide.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full deployment guide.
 
-```bash
-# Azure infrastructure
-./scripts/deploy-infra.sh --prefix cloudsoa --location eastus
+```powershell
+# Azure infrastructure (PowerShell)
+.\scripts\deploy-infra.ps1 -Prefix cloudsoa -Location eastus
 
 # Build & push Docker images
-./scripts/build-images.sh --acr cloudsoacr --tag v1.0.0
+.\scripts\build-images.ps1 -AcrName cloudsoacr -Tag v1.0.0
 
 # Deploy to AKS
-./scripts/deploy-k8s.sh --acr cloudsoacr.azurecr.io --tag v1.0.0
-
-# Local Docker Compose
-docker compose -f scripts/docker-compose.yaml up -d
+.\scripts\deploy-k8s.ps1 -AcrServer cloudsoacr.azurecr.io -Tag v1.0.0
 ```
 
 ## 📊 API Reference
 
-### Session Management
+### Session Management (Broker)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/v1/sessions` | Create session |
+| GET | `/api/v1/sessions` | List all sessions |
 | GET | `/api/v1/sessions/{id}` | Get session |
 | POST | `/api/v1/sessions/{id}/attach` | Attach to session |
 | DELETE | `/api/v1/sessions/{id}` | Close session |
@@ -162,6 +240,22 @@ docker compose -f scripts/docker-compose.yaml up -d
 | POST | `/api/v1/sessions/{id}/requests` | Send requests (batch) |
 | POST | `/api/v1/sessions/{id}/requests/flush` | End requests |
 | GET | `/api/v1/sessions/{id}/responses` | Get responses |
+
+### Cluster Metrics (Broker)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/metrics` | Cluster health, pod status, queue depths |
+
+### Service Management (ServiceManager)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/services` | List registered services |
+| POST | `/api/v1/services` | Register service (upload DLL + config) |
+| GET | `/api/v1/services/{name}` | Get service details |
+| POST | `/api/v1/services/{name}/deploy` | Deploy service to AKS |
+| POST | `/api/v1/services/{name}/stop` | Stop service |
 
 ### System
 

@@ -32,3 +32,12 @@ output "cosmosdb_primary_key" {
   value     = azurerm_cosmosdb_account.cosmos.primary_key
   sensitive = true
 }
+
+output "blob_storage_account" {
+  value = azurerm_storage_account.blob.name
+}
+
+output "blob_storage_connection_string" {
+  value     = azurerm_storage_account.blob.primary_connection_string
+  sensitive = true
+}

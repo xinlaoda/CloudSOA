@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal
+  namespace: cloudsoa
+  labels:
+    app: portal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: portal
+  template:
+    metadata:
+      labels:
+        app: portal
+    spec:
+      imagePullSecrets:
+        - name: acr-secret
+      containers:
+        - name: portal
+          image: xxincloudsoaacr.azurecr.io/portal:v1.0.1
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5030
+          env:
+            - name: ApiEndpoints__Broker
+              value: "http://broker-service"
+            - name: ApiEndpoints__ServiceManager
+              value: "http://servicemanager-service"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5030
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5030
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portal-service
+  namespace: cloudsoa
+spec:
+  type: LoadBalancer
+  selector:
+    app: portal
+  ports:
+    - port: 80
+      targetPort: 5030

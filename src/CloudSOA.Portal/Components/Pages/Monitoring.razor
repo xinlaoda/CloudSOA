@@ -1,0 +1,173 @@
+@page "/monitoring"
+@inject BrokerApiClient BrokerApi
+
+<PageTitle>Monitoring - CloudSOA</PageTitle>
+
+<h2 class="mb-3">Cluster Monitoring</h2>
+
+<div class="row g-3 mb-4">
+    <div class="col-12">
+        <div class="d-flex justify-content-end">
+            <button class="btn btn-outline-primary btn-sm" @onclick="Refresh">
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header"><strong>ServiceHost Pods</strong></div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Pod Name</th>
+                    <th>Node</th>
+                    <th>Status</th>
+                    <th>CPU</th>
+                    <th>Memory</th>
+                    <th>Restarts</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (serviceHostPods.Any())
+                {
+                    @foreach (var pod in serviceHostPods)
+                    {
+                        <tr>
+                            <td><code>@pod.Name</code></td>
+                            <td>@pod.Node</td>
+                            <td><span class="badge @GetPodStatusBadge(pod.Status)">@pod.Status</span></td>
+                            <td>@pod.CpuUsage</td>
+                            <td>@pod.MemoryUsage</td>
+                            <td>
+                                @if (pod.Restarts > 0)
+                                {
+                                    <span class="text-warning">@pod.Restarts</span>
+                                }
+                                else
+                                {
+                                    @pod.Restarts
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr><td colspan="6" class="text-center text-muted py-3">No ServiceHost pods found</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><strong>Broker Pods</strong></div>
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Pod Name</th>
+                            <th>Status</th>
+                            <th>CPU</th>
+                            <th>Memory</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (brokerPods.Any())
+                        {
+                            @foreach (var pod in brokerPods)
+                            {
+                                <tr>
+                                    <td><code>@pod.Name</code></td>
+                                    <td><span class="badge @GetPodStatusBadge(pod.Status)">@pod.Status</span></td>
+                                    <td>@pod.CpuUsage</td>
+                                    <td>@pod.MemoryUsage</td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr><td colspan="4" class="text-center text-muted py-3">No Broker pods found</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><strong>Queue Depths</strong></div>
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Queue</th>
+                            <th>Pending</th>
+                            <th>Processing</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (queueDepths.Any())
+                        {
+                            @foreach (var q in queueDepths)
+                            {
+                                <tr>
+                                    <td>@q.QueueName</td>
+                                    <td>
+                                        <span class="@(q.Pending > 100 ? "text-warning fw-bold" : "")">@q.Pending</span>
+                                    </td>
+                                    <td>@q.Processing</td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr><td colspan="3" class="text-center text-muted py-3">No queue data available</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<PodStatus> serviceHostPods = new();
+    private List<PodStatus> brokerPods = new();
+    private List<QueueDepth> queueDepths = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Refresh();
+    }
+
+    private async Task Refresh()
+    {
+        try
+        {
+            var metrics = await BrokerApi.GetMetricsAsync();
+            serviceHostPods = metrics.ServiceHostPods;
+            brokerPods = metrics.BrokerPods;
+            queueDepths = metrics.QueueDepths;
+        }
+        catch
+        {
+            serviceHostPods = new();
+            brokerPods = new();
+            queueDepths = new();
+        }
+    }
+
+    private string GetPodStatusBadge(string status) => status switch
+    {
+        "Running" => "badge-running",
+        "Pending" => "badge-pending",
+        "Failed" or "CrashLoopBackOff" => "badge-failed",
+        _ => "badge-stopped"
+    };
+}

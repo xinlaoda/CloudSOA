@@ -1,0 +1,127 @@
+/* CloudSOA Management Portal */
+
+html, body {
+    height: 100%;
+    margin: 0;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+.app-container {
+    display: flex;
+    height: 100vh;
+}
+
+/* Dark sidebar */
+.sidebar {
+    width: 250px;
+    min-width: 250px;
+    background-color: #1e293b;
+    color: #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+.sidebar-brand {
+    padding: 1.25rem 1rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border-bottom: 1px solid #334155;
+    color: #60a5fa;
+}
+
+.sidebar .nav-link {
+    color: #cbd5e1;
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    text-decoration: none;
+    border-left: 3px solid transparent;
+    transition: background-color 0.15s;
+}
+
+.sidebar .nav-link:hover {
+    background-color: #334155;
+    color: #f1f5f9;
+}
+
+.sidebar .nav-link.active {
+    background-color: #334155;
+    color: #60a5fa;
+    border-left-color: #60a5fa;
+}
+
+/* Top bar */
+.top-bar {
+    background-color: #fff;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 0.75rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.top-bar h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+    color: #1e293b;
+}
+
+/* Main content */
+.main-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.main-content {
+    flex: 1;
+    padding: 1.5rem;
+    overflow-y: auto;
+    background-color: #f8fafc;
+}
+
+/* Dashboard cards */
+.stat-card {
+    border: none;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.stat-card .card-body {
+    padding: 1.25rem;
+}
+
+.stat-card .stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.stat-card .stat-label {
+    font-size: 0.875rem;
+    color: #64748b;
+    margin-top: 0.25rem;
+}
+
+/* Health indicator */
+.health-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 0.5rem;
+}
+
+.health-dot.healthy { background-color: #22c55e; }
+.health-dot.degraded { background-color: #eab308; }
+.health-dot.unhealthy { background-color: #ef4444; }
+
+/* Status badges */
+.badge-running { background-color: #22c55e; }
+.badge-pending { background-color: #eab308; }
+.badge-failed { background-color: #ef4444; }
+.badge-stopped { background-color: #94a3b8; }
