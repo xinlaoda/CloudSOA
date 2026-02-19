@@ -1,10 +1,31 @@
-# CloudSOA — Cloud-Native SOA Broker for AKS
+# CloudSOA — HPC Pack SOA-Compatible Cloud-Native Service Platform
 
 [![Build](https://github.com/xinlaoda/CloudSOA/actions/workflows/ci.yaml/badge.svg)](https://github.com/xinlaoda/CloudSOA/actions/workflows/ci.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/)
 
-A cloud-native SOA Broker service that replaces Microsoft HPC Pack Head Node + Broker Node, deployed on Azure Kubernetes Service (AKS). Existing HPC Pack SOA service DLLs (WCF/.NET Framework) can run **without code changes** — only the client needs a one-line namespace swap.
+CloudSOA is a cloud-native SOA service platform fully compatible with [Microsoft HPC Pack SOA](https://learn.microsoft.com/en-us/powershell/high-performance-computing/overview). It enables seamless migration of existing HPC Pack SOA workloads to Azure Kubernetes Service (AKS) — **service DLLs run without code changes**, and clients only need a one-line namespace swap.
+
+Compared to on-premises HPC Pack SOA, CloudSOA delivers **better scalability, higher availability, and lower operational cost** by leveraging cloud-native infrastructure (Kubernetes, Redis, Azure managed services).
+
+## 🆚 CloudSOA vs. HPC Pack SOA
+
+| Capability | HPC Pack SOA (On-Premises) | CloudSOA (AKS) |
+|------------|---------------------------|-----------------|
+| **Broker** | Single Head Node (stateful, single point of failure) | Stateless Broker pods (multi-replica, auto-scaling via HPA) |
+| **Compute Nodes** | Physical/VM nodes, manual provisioning | Kubernetes pods, KEDA auto-scaling (0→50 in seconds) |
+| **High Availability** | Active/passive failover, manual setup | Kubernetes self-healing, rolling updates, leader election |
+| **Scaling** | Manual or scheduled, limited by hardware | Automatic on queue depth, scale to zero when idle |
+| **Service Deployment** | Install DLL on each compute node manually | Upload DLL once → auto-deployed to all pods via Blob Storage |
+| **Service DLL Compatibility** | WCF [ServiceContract] DLLs | ✅ Same DLLs, zero code changes (Windows container) |
+| **Client SDK Compatibility** | `Microsoft.Hpc.Scheduler.Session` | ✅ Same API — change `using` namespace only |
+| **Session Types** | Interactive + Durable | ✅ Interactive + Durable |
+| **Broker Back-Pressure** | Limited throttling | Three-tier flow control (Accept / Throttle / Reject) |
+| **Monitoring** | HPC Pack Cluster Manager (Windows app) | Web-based Portal (Dashboard, Monitoring, Service Mgmt) |
+| **Infrastructure Cost** | Dedicated servers, always-on | Pay-per-use, scale to zero, Azure spot instances |
+| **Observability** | Windows Event Log, limited metrics | Prometheus metrics, structured logging, health endpoints |
+| **Update/Rollback** | Service downtime during update | Zero-downtime rolling updates, instant rollback |
+| **Network Protocol** | WCF (NetTcp/BasicHttp) | REST + gRPC (modern, firewall-friendly) |
 
 ## ✨ Features
 
