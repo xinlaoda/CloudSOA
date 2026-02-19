@@ -1,0 +1,293 @@
+@page "/services/{ServiceName}"
+@inject ServiceManagerApiClient ServiceManagerApi
+@inject BrokerApiClient BrokerApi
+@inject NavigationManager Navigation
+
+<PageTitle>@ServiceName - CloudSOA</PageTitle>
+
+<div class="d-flex align-items-center mb-3">
+    <a href="/services" class="btn btn-outline-secondary btn-sm me-3">
+        <i class="bi bi-arrow-left"></i> Back
+    </a>
+    <h2 class="mb-0">@ServiceName</h2>
+    @if (service is not null)
+    {
+        <span class="badge @GetStatusBadge(service.Status) ms-3 fs-6">@service.Status</span>
+    }
+</div>
+
+@if (errorMessage is not null)
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+else if (service is null)
+{
+    <div class="text-center py-5 text-muted">Loading...</div>
+}
+else
+{
+    <div class="row g-4">
+        <!-- Service Configuration -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header"><strong>Service Configuration</strong></div>
+                <div class="card-body">
+                    <table class="table table-sm mb-0">
+                        <tbody>
+                            <tr>
+                                <td class="text-muted" style="width:40%">Service Name</td>
+                                <td><strong>@service.ServiceName</strong></td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Version</td>
+                                <td>@service.Version</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Runtime</td>
+                                <td><span class="badge bg-secondary">@service.RuntimeLabel</span></td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Assembly</td>
+                                <td><code>@service.AssemblyName</code></td>
+                            </tr>
+                            @if (!string.IsNullOrEmpty(service.ServiceContractType))
+                            {
+                                <tr>
+                                    <td class="text-muted">Service Contract</td>
+                                    <td><code>@service.ServiceContractType</code></td>
+                                </tr>
+                            }
+                            <tr>
+                                <td class="text-muted">Status</td>
+                                <td><span class="badge @GetStatusBadge(service.Status)">@service.Status</span></td>
+                            </tr>
+                            @if (!string.IsNullOrEmpty(service.BlobPath))
+                            {
+                                <tr>
+                                    <td class="text-muted">Blob Path</td>
+                                    <td><code class="small">@service.BlobPath</code></td>
+                                </tr>
+                            }
+                            <tr>
+                                <td class="text-muted">Registered At</td>
+                                <td>@service.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss UTC")</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Updated At</td>
+                                <td>@service.UpdatedAt.ToString("yyyy-MM-dd HH:mm:ss UTC")</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Resources & Scaling -->
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header"><strong>Resources &amp; Scaling</strong></div>
+                <div class="card-body">
+                    <table class="table table-sm mb-0">
+                        <tbody>
+                            <tr>
+                                <td class="text-muted" style="width:40%">Running Instances</td>
+                                <td>
+                                    <span class="fw-bold @(runningPodCount > 0 ? "text-success" : "text-muted")">@runningPodCount</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Min Instances</td>
+                                <td>@service.Resources.MinInstances</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Max Instances</td>
+                                <td>@service.Resources.MaxInstances</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">CPU / Instance</td>
+                                <td>@service.Resources.CpuPerInstance</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Memory / Instance</td>
+                                <td>@service.Resources.MemoryPerInstance</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Running Pods -->
+            <div class="card">
+                <div class="card-header"><strong>Running Pods</strong></div>
+                <div class="card-body p-0">
+                    @if (servicePods.Any())
+                    {
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Pod Name</th>
+                                    <th>Node</th>
+                                    <th>Status</th>
+                                    <th>Restarts</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var pod in servicePods)
+                                {
+                                    <tr>
+                                        <td><code class="small">@pod.Name</code></td>
+                                        <td class="small">@pod.Node</td>
+                                        <td><span class="badge @GetPodStatusBadge(pod.Status)">@pod.Status</span></td>
+                                        <td>@pod.Restarts</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    else
+                    {
+                        <div class="text-center text-muted py-3">No pods running for this service</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="mt-4">
+        <div class="btn-group">
+            @if (service.Status != "deployed" && service.Status != "Running")
+            {
+                <button class="btn btn-success" @onclick="Deploy" disabled="@isLoading">
+                    <i class="bi bi-play-fill me-1"></i> Deploy
+                </button>
+            }
+            else
+            {
+                <button class="btn btn-warning" @onclick="Stop" disabled="@isLoading">
+                    <i class="bi bi-stop-fill me-1"></i> Stop
+                </button>
+            }
+            <button class="btn btn-outline-danger" @onclick="Delete" disabled="@isLoading">
+                <i class="bi bi-trash me-1"></i> Delete
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(actionMessage))
+    {
+        <div class="alert @actionAlertClass mt-3 alert-dismissible fade show">
+            @actionMessage
+            <button type="button" class="btn-close" @onclick="() => actionMessage = null"></button>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string ServiceName { get; set; } = string.Empty;
+
+    private ServiceDetailInfo? service;
+    private List<PodStatus> servicePods = new();
+    private int runningPodCount;
+    private string? errorMessage;
+    private bool isLoading;
+    private string? actionMessage;
+    private string actionAlertClass = "alert-info";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDetail();
+    }
+
+    private async Task LoadDetail()
+    {
+        try
+        {
+            service = await ServiceManagerApi.GetServiceDetailAsync(ServiceName);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load service: {ex.Message}";
+            return;
+        }
+
+        try
+        {
+            var metrics = await BrokerApi.GetMetricsAsync();
+            var nameLower = ServiceName.ToLowerInvariant();
+            servicePods = metrics.ServiceHostPods
+                .Where(p => p.Name.Contains(nameLower, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            runningPodCount = servicePods.Count(p => p.Status == "Running");
+        }
+        catch { servicePods = new(); runningPodCount = 0; }
+    }
+
+    private async Task Deploy()
+    {
+        isLoading = true;
+        try
+        {
+            await ServiceManagerApi.DeployAsync(ServiceName);
+            actionMessage = "Deployment initiated.";
+            actionAlertClass = "alert-success";
+            await LoadDetail();
+        }
+        catch (Exception ex)
+        {
+            actionMessage = $"Deploy failed: {ex.Message}";
+            actionAlertClass = "alert-danger";
+        }
+        finally { isLoading = false; }
+    }
+
+    private async Task Stop()
+    {
+        isLoading = true;
+        try
+        {
+            await ServiceManagerApi.StopAsync(ServiceName);
+            actionMessage = "Service stopped.";
+            actionAlertClass = "alert-success";
+            await LoadDetail();
+        }
+        catch (Exception ex)
+        {
+            actionMessage = $"Stop failed: {ex.Message}";
+            actionAlertClass = "alert-danger";
+        }
+        finally { isLoading = false; }
+    }
+
+    private async Task Delete()
+    {
+        isLoading = true;
+        try
+        {
+            await ServiceManagerApi.DeleteAsync(ServiceName);
+            Navigation.NavigateTo("/services");
+        }
+        catch (Exception ex)
+        {
+            actionMessage = $"Delete failed: {ex.Message}";
+            actionAlertClass = "alert-danger";
+        }
+        finally { isLoading = false; }
+    }
+
+    private string GetStatusBadge(string status) => status switch
+    {
+        "deployed" or "Running" => "badge-running",
+        "registered" or "Pending" => "badge-pending",
+        "error" or "Failed" => "badge-failed",
+        _ => "badge-stopped"
+    };
+
+    private string GetPodStatusBadge(string status) => status switch
+    {
+        "Running" => "badge-running",
+        "Pending" => "badge-pending",
+        "Failed" or "CrashLoopBackOff" => "badge-failed",
+        _ => "badge-stopped"
+    };
+}

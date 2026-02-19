@@ -1,5 +1,6 @@
 @page "/services"
 @inject ServiceManagerApiClient ServiceManagerApi
+@inject BrokerApiClient BrokerApi
 @inject NavigationManager Navigation
 
 <PageTitle>Services - CloudSOA</PageTitle>
@@ -30,11 +31,21 @@
                     @foreach (var svc in services)
                     {
                         <tr>
-                            <td><strong>@svc.ServiceName</strong></td>
+                            <td><a href="/services/@svc.ServiceName"><strong>@svc.ServiceName</strong></a></td>
                             <td>@svc.Version</td>
                             <td><span class="badge bg-secondary">@svc.RuntimeLabel</span></td>
                             <td><span class="badge @GetStatusBadge(svc.Status)">@svc.Status</span></td>
-                            <td>@svc.Resources.MinInstances / @svc.Resources.MaxInstances</td>
+                            <td>
+                                @if (svc.Status == "deployed" || svc.Status == "Running")
+                                {
+                                    <span class="text-success fw-bold">@GetRunningCount(svc)</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">0</span>
+                                }
+                                <span class="text-muted">/ @svc.Resources.MaxInstances</span>
+                            </td>
                             <td>
                                 <div class="btn-group btn-group-sm">
                                     @if (svc.Status != "Running" && svc.Status != "deployed")
@@ -88,6 +99,7 @@
 
 @code {
     private List<ServiceInfo> services = new();
+    private Dictionary<string, int> podCounts = new();
     private bool isLoading;
     private string? statusMessage;
     private string statusAlertClass = "alert-info";
@@ -108,6 +120,28 @@
             statusMessage = "Unable to connect to Service Manager API.";
             statusAlertClass = "alert-danger";
         }
+
+        try
+        {
+            var metrics = await BrokerApi.GetMetricsAsync();
+            podCounts = metrics.ServiceHostPods
+                .Where(p => p.Status == "Running")
+                .GroupBy(p => p.Name.Split('-')[0])
+                .ToDictionary(g => g.Key, g => g.Count());
+        }
+        catch { podCounts = new(); }
+    }
+
+    private int GetRunningCount(ServiceInfo svc)
+    {
+        // Match pod name prefix like "servicehost-echo" or "svc-calculatorservice"
+        var nameLower = svc.ServiceName.ToLowerInvariant();
+        foreach (var kv in podCounts)
+        {
+            if (kv.Key.Contains(nameLower, StringComparison.OrdinalIgnoreCase))
+                return kv.Value;
+        }
+        return svc.Resources.MinInstances > 0 ? svc.Resources.MinInstances : 0;
     }
 
     private async Task Deploy(string serviceName)

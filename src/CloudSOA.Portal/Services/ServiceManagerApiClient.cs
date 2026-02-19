@@ -21,6 +21,14 @@ public class ServiceManagerApiClient
         return await response.Content.ReadFromJsonAsync<List<ServiceInfo>>() ?? new();
     }
 
+    public async Task<ServiceDetailInfo> GetServiceDetailAsync(string serviceName)
+    {
+        var response = await _httpClient.GetAsync($"/api/v1/services/{serviceName}");
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<ServiceDetailInfo>()
+            ?? throw new InvalidOperationException("Service not found.");
+    }
+
     public async Task<ServiceInfo> GetServiceAsync(string serviceName)
     {
         var response = await _httpClient.GetAsync($"/api/v1/services/{serviceName}");
@@ -111,4 +119,56 @@ public class ServiceResourcesInfo
 
     [JsonPropertyName("memoryPerInstance")]
     public string MemoryPerInstance { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Extended service info for detail page — includes all fields from GET /api/v1/services/{name}
+/// </summary>
+public class ServiceDetailInfo
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("serviceName")]
+    public string ServiceName { get; set; } = string.Empty;
+
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = string.Empty;
+
+    [JsonPropertyName("runtime")]
+    public string Runtime { get; set; } = string.Empty;
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = string.Empty;
+
+    [JsonPropertyName("assemblyName")]
+    public string AssemblyName { get; set; } = string.Empty;
+
+    [JsonPropertyName("serviceContractType")]
+    public string? ServiceContractType { get; set; }
+
+    [JsonPropertyName("blobPath")]
+    public string BlobPath { get; set; } = string.Empty;
+
+    [JsonPropertyName("resources")]
+    public ServiceResourcesInfo Resources { get; set; } = new();
+
+    [JsonPropertyName("dependencies")]
+    public List<string> Dependencies { get; set; } = new();
+
+    [JsonPropertyName("environment")]
+    public Dictionary<string, string> Environment { get; set; } = new();
+
+    [JsonPropertyName("createdAt")]
+    public DateTime CreatedAt { get; set; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTime UpdatedAt { get; set; }
+
+    public string RuntimeLabel => Runtime switch
+    {
+        "wcf-netfx" => "WCF (.NET Fx)",
+        "native-net8" => ".NET 8",
+        _ => Runtime
+    };
 }
