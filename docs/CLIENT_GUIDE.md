@@ -214,8 +214,223 @@ kubectl get svc broker-service -n cloudsoa -w
 
 Once assigned, clients connect at `http://<EXTERNAL_IP>`.
 
-> **Security Note:** For production, use Azure Application Gateway Ingress Controller (AGIC)
-> with TLS termination and Azure AD authentication instead of a plain LoadBalancer.
+> ⚠️ A plain LoadBalancer exposes your Broker over **unencrypted HTTP** with **no authentication**.
+> This is acceptable for development/testing but **not for production**. See the next section.
+
+### Method 5: Production Setup — AGIC + TLS + Azure AD (Recommended)
+
+For production deployments, use **Azure Application Gateway Ingress Controller (AGIC)** to provide:
+
+- **TLS/HTTPS termination** — all client traffic encrypted
+- **Azure AD (Entra ID) authentication** — only authorized users/apps can call the API
+- **Web Application Firewall (WAF)** — protection against common attacks
+- **Custom domain + DNS** — e.g., `https://soa.yourcompany.com`
+
+#### Architecture
+
+```
+Client App (CloudSOA.Client SDK)
+    │  HTTPS + Bearer Token
+    ▼
+Azure Application Gateway (WAF + TLS)
+    │  domain: soa.yourcompany.com
+    │  cert:   *.yourcompany.com (Key Vault)
+    │  auth:   Azure AD token validation
+    ▼
+AKS Ingress (AGIC) → broker-service:80 (ClusterIP, internal)
+```
+
+#### Step 1: Enable AGIC on AKS
+
+```bash
+# Enable AGIC add-on (creates an Application Gateway automatically)
+az aks enable-addons \
+  --resource-group <RESOURCE_GROUP> \
+  --name <AKS_CLUSTER> \
+  --addons ingress-appgw \
+  --appgw-name cloudsoa-appgw \
+  --appgw-subnet-cidr "10.225.0.0/16"
+```
+
+Or if you have an existing Application Gateway:
+
+```bash
+az aks enable-addons \
+  --resource-group <RESOURCE_GROUP> \
+  --name <AKS_CLUSTER> \
+  --addons ingress-appgw \
+  --appgw-id <EXISTING_APPGW_RESOURCE_ID>
+```
+
+#### Step 2: Create a TLS Certificate
+
+Option A — Use Azure Key Vault + Let's Encrypt (recommended):
+
+```bash
+# Store your TLS cert in Key Vault
+az keyvault certificate import \
+  --vault-name <KEYVAULT_NAME> \
+  --name cloudsoa-tls \
+  --file soa-yourcompany-com.pfx \
+  --password <PFX_PASSWORD>
+```
+
+Option B — Use a Kubernetes TLS Secret:
+
+```bash
+kubectl create secret tls cloudsoa-tls \
+  --cert=tls.crt --key=tls.key \
+  -n cloudsoa
+```
+
+#### Step 3: Create an Ingress Resource
+
+Save the following as `deploy/k8s/broker-ingress.yaml`:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: broker-ingress
+  namespace: cloudsoa
+  annotations:
+    kubernetes.io/ingress.class: azure/application-gateway
+    # TLS redirect: HTTP → HTTPS
+    appgw.ingress.kubernetes.io/ssl-redirect: "true"
+    # Health probe path
+    appgw.ingress.kubernetes.io/health-probe-path: /healthz
+    # WAF policy (optional)
+    appgw.ingress.kubernetes.io/waf-policy-for-path: /subscriptions/<SUB>/resourceGroups/<RG>/providers/Microsoft.Network/ApplicationGatewayWebApplicationFirewallPolicies/<WAF_POLICY>
+    # Request timeout (seconds)
+    appgw.ingress.kubernetes.io/request-timeout: "300"
+spec:
+  tls:
+    - hosts:
+        - soa.yourcompany.com
+      secretName: cloudsoa-tls          # K8s secret or Key Vault reference
+  rules:
+    - host: soa.yourcompany.com
+      http:
+        paths:
+          - path: /api/*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: broker-service
+                port:
+                  number: 80
+          - path: /healthz
+            pathType: Exact
+            backend:
+              service:
+                name: broker-service
+                port:
+                  number: 80
+```
+
+Apply:
+```bash
+kubectl apply -f deploy/k8s/broker-ingress.yaml
+```
+
+#### Step 4: Configure DNS
+
+Point your domain to the Application Gateway's public IP:
+
+```bash
+# Get the Application Gateway public IP
+APPGW_IP=$(az network public-ip show \
+  --resource-group MC_<RG>_<AKS>_<REGION> \
+  --name <APPGW_PUBLIC_IP_NAME> \
+  --query ipAddress -o tsv)
+
+echo "Create a DNS A record: soa.yourcompany.com → $APPGW_IP"
+```
+
+Or use Azure DNS:
+```bash
+az network dns record-set a add-record \
+  --resource-group <DNS_RG> \
+  --zone-name yourcompany.com \
+  --record-set-name soa \
+  --ipv4-address $APPGW_IP
+```
+
+#### Step 5: Add Azure AD Authentication (Optional but Recommended)
+
+Register a Microsoft Entra ID (Azure AD) app for the Broker API:
+
+```bash
+# 1. Register an app for the Broker API
+az ad app create \
+  --display-name "CloudSOA Broker API" \
+  --identifier-uris "api://cloudsoa-broker" \
+  --sign-in-audience AzureADMyOrg
+
+# Note the Application (client) ID from the output
+
+# 2. Register a client app for SOA clients
+az ad app create \
+  --display-name "CloudSOA Client" \
+  --public-client-redirect-uris "http://localhost"
+
+# Note the client Application ID
+```
+
+Configure the Broker to validate tokens by setting environment variables:
+
+```bash
+kubectl set env deployment/broker -n cloudsoa \
+  AzureAd__Instance="https://login.microsoftonline.com/" \
+  AzureAd__TenantId="<YOUR_TENANT_ID>" \
+  AzureAd__ClientId="<BROKER_APP_CLIENT_ID>" \
+  AzureAd__Audience="api://cloudsoa-broker"
+```
+
+Client code with Azure AD token:
+
+```csharp
+using Azure.Identity;
+using CloudSOA.Client;
+
+// Acquire token for the Broker API
+var credential = new DefaultAzureCredential();
+var token = await credential.GetTokenAsync(
+    new TokenRequestContext(new[] { "api://cloudsoa-broker/.default" }));
+
+// Pass the token via SessionStartInfo
+var info = new SessionStartInfo("https://soa.yourcompany.com", "CalculatorService");
+info.Properties["Authorization"] = $"Bearer {token.Token}";
+
+using var session = Session.CreateSession(info);
+// ... rest of the code is the same
+```
+
+#### Step 6: Verify the Setup
+
+```bash
+# Test HTTPS connectivity
+curl -v https://soa.yourcompany.com/healthz
+# Expected: HTTP/2 200 OK, body "Healthy"
+
+# Test API (with token if Azure AD is configured)
+curl -H "Authorization: Bearer <TOKEN>" \
+  https://soa.yourcompany.com/api/v1/sessions
+```
+
+#### Production Checklist
+
+| Item | Status |
+|------|--------|
+| TLS certificate installed | ☐ |
+| HTTP → HTTPS redirect enabled | ☐ |
+| Custom DNS configured | ☐ |
+| WAF policy attached | ☐ |
+| Azure AD app registered (Broker API) | ☐ |
+| Azure AD app registered (Client) | ☐ |
+| Broker validates tokens | ☐ |
+| API Key middleware disabled (replaced by Azure AD) | ☐ |
+| Network policy: only AGIC can reach Broker | ☐ |
 
 ### URL Format
 

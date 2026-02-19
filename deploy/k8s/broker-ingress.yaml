@@ -1,0 +1,47 @@
+# CloudSOA Broker Ingress — AGIC (Azure Application Gateway Ingress Controller)
+#
+# Prerequisites:
+#   1. AGIC add-on enabled on AKS
+#   2. TLS certificate stored in K8s secret or Azure Key Vault
+#   3. DNS A record pointing to Application Gateway public IP
+#
+# Usage:
+#   1. Replace soa.yourcompany.com with your domain
+#   2. Replace cloudsoa-tls with your TLS secret name
+#   3. kubectl apply -f broker-ingress.yaml
+#
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: broker-ingress
+  namespace: cloudsoa
+  annotations:
+    kubernetes.io/ingress.class: azure/application-gateway
+    appgw.ingress.kubernetes.io/ssl-redirect: "true"
+    appgw.ingress.kubernetes.io/health-probe-path: /healthz
+    appgw.ingress.kubernetes.io/request-timeout: "300"
+    appgw.ingress.kubernetes.io/connection-draining: "true"
+    appgw.ingress.kubernetes.io/connection-draining-timeout: "30"
+spec:
+  tls:
+    - hosts:
+        - soa.yourcompany.com
+      secretName: cloudsoa-tls
+  rules:
+    - host: soa.yourcompany.com
+      http:
+        paths:
+          - path: /api/*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: broker-service
+                port:
+                  number: 80
+          - path: /healthz
+            pathType: Exact
+            backend:
+              service:
+                name: broker-service
+                port:
+                  number: 80
