@@ -4,12 +4,17 @@ using System.Diagnostics;
 var brokerUrl = args.Length > 0 ? args[0] : "http://localhost:5000";
 var concurrency = args.Length > 1 ? int.Parse(args[1]) : 10;
 var totalCalls = args.Length > 2 ? int.Parse(args[2]) : 100;
+var serviceName = args.Length > 3 ? args[3] : "CalculatorService";
+var action = args.Length > 4 ? args[4] : "Add";
+var actionParam = args.Length > 5 ? args[5] : "100";
 
 Console.WriteLine($"CloudSOA Auto-Scaling Load Test");
 Console.WriteLine($"Broker:      {brokerUrl}");
 Console.WriteLine($"Workers:     {concurrency} (1 session each)");
 Console.WriteLine($"Total calls: {totalCalls}");
 Console.WriteLine($"Calls/worker: {totalCalls / concurrency}");
+Console.WriteLine($"Service:     {serviceName}");
+Console.WriteLine($"Action:      {action}({actionParam})");
 Console.WriteLine(new string('=', 60));
 
 // Snapshot metrics before test
@@ -47,7 +52,7 @@ for (int w = 0; w < concurrency; w++)
         {
             // One session per worker — all requests go through this session
             using var session = await CloudSession.CreateSessionAsync(
-                new SessionStartInfo(brokerUrl, "CalculatorService"));
+                new SessionStartInfo(brokerUrl, serviceName));
 
             using var client = new CloudBrokerClient(session);
 
@@ -56,11 +61,18 @@ for (int w = 0; w < concurrency; w++)
                 var callSw = Stopwatch.StartNew();
                 try
                 {
-                    // Call Add(double, double) — sends XML payload for WCF deserialization
-                    double a = workerId * 100 + i;
-                    double b = i * 3.14;
-                    var payload = $"<Parameters><a>{a}</a><b>{b}</b></Parameters>";
-                    client.SendRequest("Add", payload);
+                    // Build payload based on action
+                    string payload;
+                    if (action == "MatrixMultiply")
+                        payload = $"<Parameters><size>{actionParam}</size></Parameters>";
+                    else if (action == "EstimatePi")
+                        payload = $"<Parameters><iterations>{actionParam}</iterations></Parameters>";
+                    else if (action == "ComputeNthPrime")
+                        payload = $"<Parameters><n>{actionParam}</n></Parameters>";
+                    else // Add, Subtract, etc.
+                        payload = $"<Parameters><a>{workerId * 100 + i}</a><b>{i * 3.14}</b></Parameters>";
+
+                    client.SendRequest(action, payload);
                     await client.EndRequestsAsync();
 
                     var responses = await client.GetAllResponsesAsync(1, TimeSpan.FromSeconds(30));
