@@ -4,7 +4,23 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- NuGet package metadata -->
+    <PackageId>CloudSOA.Client</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>xinlaoda</Authors>
+    <Description>Client SDK for CloudSOA — drop-in replacement for Microsoft HPC Pack SOA client. Change one using line to migrate.</Description>
+    <PackageProjectUrl>https://github.com/xinlaoda/CloudSOA</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/xinlaoda/CloudSOA</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>cloudsoa;hpc;soa;wcf;azure;aks;client</PackageTags>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CloudSOA.Common\CloudSOA.Common.csproj" />

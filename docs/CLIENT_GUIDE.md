@@ -93,30 +93,62 @@ In your client `.csproj`:
 
 ### Option B: NuGet Package (Recommended for Production)
 
-If the CloudSOA NuGet package is published to a feed:
+The CloudSOA Client SDK is published as a NuGet package on **GitHub Packages**.
+
+**Step 1:** Create a Personal Access Token (PAT) with `read:packages` scope at
+[GitHub Settings → Tokens](https://github.com/settings/tokens).
+
+**Step 2:** Add the GitHub Packages source to your project:
 
 ```bash
-dotnet add package CloudSOA.Client
+dotnet nuget add source "https://nuget.pkg.github.com/xinlaoda/index.json" \
+  --name CloudSOA \
+  --username YOUR_GITHUB_USERNAME \
+  --password YOUR_GITHUB_PAT
 ```
 
-> **Note:** Contact your CloudSOA administrator for the NuGet feed URL.
-> For private Azure DevOps feeds, add the source first:
-> ```bash
-> dotnet nuget add source https://pkgs.dev.azure.com/YOUR_ORG/_packaging/YOUR_FEED/nuget/v3/index.json \
->   --name CloudSOA --username YOUR_USER --password YOUR_PAT
-> ```
+Or add a `nuget.config` file in your project/solution root:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+    <add key="CloudSOA" value="https://nuget.pkg.github.com/xinlaoda/index.json" />
+  </packageSources>
+  <packageSourceCredentials>
+    <CloudSOA>
+      <add key="Username" value="YOUR_GITHUB_USERNAME" />
+      <add key="ClearTextPassword" value="YOUR_GITHUB_PAT" />
+    </CloudSOA>
+  </packageSourceCredentials>
+</configuration>
+```
+
+**Step 3:** Install the packages:
+
+```bash
+dotnet add package CloudSOA.Client --version 1.0.0
+```
+
+This automatically pulls the `CloudSOA.Common` dependency.
+
+> **Note:** GitHub Packages requires authentication even for reading packages.
+> In CI/CD, use `${{ secrets.GITHUB_TOKEN }}` as the PAT.
 
 ### Option C: Build and Pack Locally
 
-Build a local NuGet package from the repository:
+Build local NuGet packages from the repository:
 
 ```bash
 cd CloudSOA
-dotnet pack src/CloudSOA.Client/CloudSOA.Client.csproj -c Release -o ./nupkgs
-dotnet nuget push ./nupkgs/CloudSOA.Client.*.nupkg --source YOUR_NUGET_FEED
+dotnet pack src/CloudSOA.Common/CloudSOA.Common.csproj -c Release -o nupkgs
+dotnet pack src/CloudSOA.Client/CloudSOA.Client.csproj -c Release -o nupkgs
 ```
 
-Then reference it:
+This produces `nupkgs/CloudSOA.Common.1.0.0.nupkg` and `nupkgs/CloudSOA.Client.1.0.0.nupkg`.
+
+Install from the local folder:
 ```bash
 dotnet add package CloudSOA.Client --source ./nupkgs
 ```
@@ -440,7 +472,7 @@ Add CloudSOA.Client:
 </ItemGroup>
 ```
 
-Or if using a NuGet package:
+Or if using a NuGet package (from GitHub Packages):
 ```xml
 <ItemGroup>
   <PackageReference Include="CloudSOA.Client" Version="1.0.0" />

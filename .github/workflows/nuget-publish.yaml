@@ -1,0 +1,60 @@
+name: Publish NuGet Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version (e.g., 1.0.1)'
+        required: true
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            TAG="${GITHUB_REF#refs/tags/v}"
+            echo "VERSION=$TAG" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Restore
+        run: dotnet restore src/CloudSOA.Client/CloudSOA.Client.csproj
+
+      - name: Pack CloudSOA.Common
+        run: |
+          dotnet pack src/CloudSOA.Common/CloudSOA.Common.csproj \
+            -c Release \
+            -o nupkgs \
+            /p:Version=${{ steps.version.outputs.VERSION }}
+
+      - name: Pack CloudSOA.Client
+        run: |
+          dotnet pack src/CloudSOA.Client/CloudSOA.Client.csproj \
+            -c Release \
+            -o nupkgs \
+            /p:Version=${{ steps.version.outputs.VERSION }}
+
+      - name: Push to GitHub Packages
+        run: |
+          dotnet nuget push nupkgs/*.nupkg \
+            --source "https://nuget.pkg.github.com/xinlaoda/index.json" \
+            --api-key ${{ secrets.GITHUB_TOKEN }} \
+            --skip-duplicate
