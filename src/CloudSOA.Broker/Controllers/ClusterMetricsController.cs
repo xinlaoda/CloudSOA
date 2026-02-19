@@ -68,7 +68,9 @@ public class ClusterMetricsController : ControllerBase
         // K8s pod info + cluster endpoint info
         var brokerPods = new List<object>();
         var serviceHostPods = new List<object>();
+        var servicePods = new List<object>();
         int totalPods = 0;
+        int runningServicePods = 0;
         bool k8sHealthy = true;
         var clusterInfo = new Dictionary<string, string>();
 
@@ -93,10 +95,21 @@ public class ClusterMetricsController : ControllerBase
 
                 var appLabel = pod.Metadata.Labels != null && pod.Metadata.Labels.ContainsKey("app")
                     ? pod.Metadata.Labels["app"] : "";
+
                 if (appLabel == "broker")
+                {
                     brokerPods.Add(info);
+                }
+                else if (pod.Metadata.Name.StartsWith("svc-"))
+                {
+                    servicePods.Add(info);
+                    if (pod.Status.Phase == "Running")
+                        runningServicePods++;
+                }
                 else if (appLabel.StartsWith("servicehost") || appLabel == "portal" || appLabel == "servicemanager")
+                {
                     serviceHostPods.Add(info);
+                }
             }
 
             // Cluster service endpoints
@@ -127,13 +140,14 @@ public class ClusterMetricsController : ControllerBase
 
         return Ok(new
         {
-            runningServices = activeSessions.Select(s => s.ServiceName).Distinct().Count(),
+            runningServices = runningServicePods,
             totalPods,
-            requestThroughput = (int)totalPending,
+            requestThroughput = (int)(Metrics.BrokerMetrics.RequestsProcessed.Value),
             brokerHealthy = true,
             serviceManagerHealthy = true,
             redisHealthy,
             kubernetesHealthy = k8sHealthy,
+            servicePods,
             serviceHostPods,
             brokerPods,
             queueDepths,

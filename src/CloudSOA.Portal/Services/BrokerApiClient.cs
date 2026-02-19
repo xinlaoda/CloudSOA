@@ -93,6 +93,9 @@ public class ClusterMetrics
     [JsonPropertyName("kubernetesHealthy")]
     public bool KubernetesHealthy { get; set; }
 
+    [JsonPropertyName("servicePods")]
+    public List<PodStatus> ServicePods { get; set; } = new();
+
     [JsonPropertyName("serviceHostPods")]
     public List<PodStatus> ServiceHostPods { get; set; } = new();
 

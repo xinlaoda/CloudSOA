@@ -16,6 +16,53 @@
 </div>
 
 <div class="card mb-4">
+    <div class="card-header"><strong>Service Pods</strong></div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Pod Name</th>
+                    <th>Node</th>
+                    <th>Status</th>
+                    <th>CPU</th>
+                    <th>Memory</th>
+                    <th>Restarts</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (servicePods.Any())
+                {
+                    @foreach (var pod in servicePods)
+                    {
+                        <tr>
+                            <td><code>@pod.Name</code></td>
+                            <td>@pod.Node</td>
+                            <td><span class="badge @GetPodStatusBadge(pod.Status)">@pod.Status</span></td>
+                            <td>@pod.CpuUsage</td>
+                            <td>@pod.MemoryUsage</td>
+                            <td>
+                                @if (pod.Restarts > 0)
+                                {
+                                    <span class="text-warning">@pod.Restarts</span>
+                                }
+                                else
+                                {
+                                    @pod.Restarts
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr><td colspan="6" class="text-center text-muted py-3">No service pods found</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mb-4">
     <div class="card-header"><strong>ServiceHost Pods</strong></div>
     <div class="card-body p-0">
         <table class="table table-hover mb-0">
@@ -137,6 +184,7 @@
 </div>
 
 @code {
+    private List<PodStatus> servicePods = new();
     private List<PodStatus> serviceHostPods = new();
     private List<PodStatus> brokerPods = new();
     private List<QueueDepth> queueDepths = new();
@@ -151,12 +199,14 @@
         try
         {
             var metrics = await BrokerApi.GetMetricsAsync();
+            servicePods = metrics.ServicePods;
             serviceHostPods = metrics.ServiceHostPods;
             brokerPods = metrics.BrokerPods;
             queueDepths = metrics.QueueDepths;
         }
         catch
         {
+            servicePods = new();
             serviceHostPods = new();
             brokerPods = new();
             queueDepths = new();
