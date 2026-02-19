@@ -113,7 +113,14 @@ public class WcfServiceAdapter : ISOAService
 
         // Fallback: single parameter
         if (parameterTypes.Length == 1)
-            return new[] { Deserialize(payload, parameterTypes[0]) };
+        {
+            // Try DataContract first, then plain UTF-8 for string types
+            try { return new[] { Deserialize(payload, parameterTypes[0]) }; }
+            catch when (parameterTypes[0] == typeof(string))
+            {
+                return new object?[] { System.Text.Encoding.UTF8.GetString(payload) };
+            }
+        }
 
         return parameterTypes.Select(t => t.IsValueType ? Activator.CreateInstance(t) : null).ToArray();
     }

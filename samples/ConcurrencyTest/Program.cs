@@ -29,6 +29,7 @@ catch { /* metrics endpoint may not be accessible */ }
 var sw = Stopwatch.StartNew();
 var completed = 0;
 var failed = 0;
+var faulted = 0;
 var responseTimes = new List<double>();
 var lockObj = new object();
 
@@ -62,6 +63,20 @@ for (int w = 0; w < concurrency; w++)
                     var responses = await client.GetAllResponsesAsync(1, TimeSpan.FromSeconds(30));
 
                     callSw.Stop();
+
+                    // Check for faults
+                    bool hasFault = false;
+                    foreach (var r in responses)
+                    {
+                        if (r.IsFault)
+                        {
+                            hasFault = true;
+                            if (Interlocked.CompareExchange(ref faulted, 0, 0) == 0)
+                                Console.Error.WriteLine($"\n  [W{workerId}#{i}] Fault: {r.FaultMessage}");
+                            Interlocked.Increment(ref faulted);
+                        }
+                    }
+
                     lock (lockObj)
                     {
                         Interlocked.Increment(ref completed);
@@ -116,6 +131,7 @@ Console.WriteLine($"RESULTS");
 Console.WriteLine(new string('=', 60));
 Console.WriteLine($"  Total requests:  {completed + failed}");
 Console.WriteLine($"  Succeeded:       {completed}");
+Console.WriteLine($"  Faulted:         {faulted}");
 Console.WriteLine($"  Failed:          {failed}");
 Console.WriteLine($"  Sessions:        {concurrency}");
 Console.WriteLine($"  Duration:        {sw.Elapsed.TotalSeconds:F1}s");

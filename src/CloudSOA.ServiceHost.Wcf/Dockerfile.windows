@@ -2,13 +2,17 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0-nanoserver-ltsc2022 AS base
 WORKDIR /app
 EXPOSE 5010
 
-FROM mcr.microsoft.com/dotnet/sdk:8.0-nanoserver-ltsc2022 AS build
+FROM mcr.microsoft.com/dotnet/sdk:8.0-windowsservercore-ltsc2022 AS build
 WORKDIR /src
-COPY ["src/CloudSOA.Common/CloudSOA.Common.csproj", "src/CloudSOA.Common/"]
-COPY ["src/CloudSOA.ServiceHost.Wcf/CloudSOA.ServiceHost.Wcf.csproj", "src/CloudSOA.ServiceHost.Wcf/"]
-RUN dotnet restore "src/CloudSOA.ServiceHost.Wcf/CloudSOA.ServiceHost.Wcf.csproj"
-COPY src/ src/
-WORKDIR /src/src/CloudSOA.ServiceHost.Wcf
+
+# Copy source
+COPY src/CloudSOA.Common/ CloudSOA.Common/
+COPY src/CloudSOA.ServiceHost.Wcf/ CloudSOA.ServiceHost.Wcf/
+
+# Remove host obj/bin that leak through .dockerignore on ACR
+RUN powershell -Command "Remove-Item -Path 'CloudSOA.Common/obj','CloudSOA.Common/bin','CloudSOA.ServiceHost.Wcf/obj','CloudSOA.ServiceHost.Wcf/bin' -Recurse -Force -ErrorAction SilentlyContinue"
+
+WORKDIR /src/CloudSOA.ServiceHost.Wcf
 RUN dotnet publish -c Release -o /app/publish
 
 FROM base AS final
