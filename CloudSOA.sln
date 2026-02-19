@@ -29,6 +29,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CalculatorService", "sample
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CalculatorClient", "samples\CalculatorClient\CalculatorClient.csproj", "{F14B4804-D57C-4E4E-A93E-94C77557B0BE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConcurrencyTest", "samples\ConcurrencyTest\ConcurrencyTest.csproj", "{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -159,6 +161,18 @@ Global
 		{F14B4804-D57C-4E4E-A93E-94C77557B0BE}.Release|x64.Build.0 = Release|Any CPU
 		{F14B4804-D57C-4E4E-A93E-94C77557B0BE}.Release|x86.ActiveCfg = Release|Any CPU
 		{F14B4804-D57C-4E4E-A93E-94C77557B0BE}.Release|x86.Build.0 = Release|Any CPU
+		{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F}.Debug|x64.Build.0 = Debug|Any CPU
+		{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F}.Debug|x86.Build.0 = Debug|Any CPU
+		{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F}.Release|x64.ActiveCfg = Release|Any CPU
+		{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F}.Release|x64.Build.0 = Release|Any CPU
+		{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F}.Release|x86.ActiveCfg = Release|Any CPU
+		{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -174,5 +188,6 @@ Global
 		{944AA04F-B8E6-43AC-9C66-098831FA4239} = {5252DCFC-E5F8-4EA1-B10B-2B3588E08049}
 		{52E9A591-21EA-44E2-A10C-2C199832B7E4} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 		{F14B4804-D57C-4E4E-A93E-94C77557B0BE} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
+		{2E19B2DB-ACA2-43DC-885E-C5CDDFDEB22F} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 	EndGlobalSection
 EndGlobal
