@@ -137,8 +137,10 @@ The client needs the **Broker endpoint URL** to connect. This is the URL of the 
 ### Method 1: From the Portal UI
 
 1. Open the CloudSOA Portal in your browser: `http://<PORTAL_EXTERNAL_IP>`
-2. Go to the **Dashboard** page
-3. The Broker endpoint is displayed in the cluster information section
+2. The **Dashboard** page displays a **Cluster Information** section at the top
+3. The **Broker Endpoint** row shows the external URL (if the Broker has a LoadBalancer)
+4. The **Broker (Internal)** row shows the in-cluster DNS address
+5. The **Client SDK Usage** row shows the exact `SessionStartInfo` constructor call to copy into your code
 
 To find the Portal IP:
 ```bash

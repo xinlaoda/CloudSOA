@@ -65,11 +65,12 @@ public class ClusterMetricsController : ControllerBase
         }
         catch { redisHealthy = false; }
 
-        // K8s pod info
+        // K8s pod info + cluster endpoint info
         var brokerPods = new List<object>();
         var serviceHostPods = new List<object>();
         int totalPods = 0;
         bool k8sHealthy = true;
+        var clusterInfo = new Dictionary<string, string>();
 
         try
         {
@@ -97,6 +98,26 @@ public class ClusterMetricsController : ControllerBase
                 else if (appLabel.StartsWith("servicehost") || appLabel == "portal" || appLabel == "servicemanager")
                     serviceHostPods.Add(info);
             }
+
+            // Cluster service endpoints
+            var services = await k8s.CoreV1.ListNamespacedServiceAsync("cloudsoa", cancellationToken: ct);
+            foreach (var svc in services.Items)
+            {
+                var name = svc.Metadata.Name;
+                var svcType = svc.Spec.Type;
+                var port = svc.Spec.Ports?.FirstOrDefault()?.Port ?? 80;
+
+                if (svcType == "LoadBalancer")
+                {
+                    var ingress = svc.Status?.LoadBalancer?.Ingress?.FirstOrDefault();
+                    var ip = ingress?.Ip ?? ingress?.Hostname ?? "<pending>";
+                    clusterInfo[name] = port == 80 ? $"http://{ip}" : $"http://{ip}:{port}";
+                }
+                else if (svcType == "ClusterIP")
+                {
+                    clusterInfo[name] = $"http://{name}.cloudsoa:{port}";
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -115,7 +136,8 @@ public class ClusterMetricsController : ControllerBase
             kubernetesHealthy = k8sHealthy,
             serviceHostPods,
             brokerPods,
-            queueDepths
+            queueDepths,
+            clusterInfo
         });
     }
 }

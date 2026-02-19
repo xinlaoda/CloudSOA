@@ -101,6 +101,9 @@ public class ClusterMetrics
 
     [JsonPropertyName("queueDepths")]
     public List<QueueDepth> QueueDepths { get; set; } = new();
+
+    [JsonPropertyName("clusterInfo")]
+    public Dictionary<string, string> ClusterInfo { get; set; } = new();
 }
 
 public class PodStatus

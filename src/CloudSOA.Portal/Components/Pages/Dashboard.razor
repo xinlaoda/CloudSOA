@@ -38,6 +38,68 @@
     </div>
 </div>
 
+<div class="row g-3 mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header"><strong>Cluster Information</strong></div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                <tr>
+                                    <td class="fw-bold text-nowrap" style="width:180px">Broker Endpoint</td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(brokerEndpoint))
+                                        {
+                                            <code>@brokerEndpoint</code>
+                                            <button class="btn btn-sm btn-outline-secondary ms-2 py-0 px-1"
+                                                    title="Copy to clipboard"
+                                                    onclick="@($"navigator.clipboard.writeText('{brokerEndpoint}')")">
+                                                📋
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">ClusterIP only (use port-forward)</span>
+                                        }
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="fw-bold">Broker (Internal)</td>
+                                    <td><code>@brokerInternal</code></td>
+                                </tr>
+                                <tr>
+                                    <td class="fw-bold">Portal</td>
+                                    <td><code>@portalEndpoint</code></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                <tr>
+                                    <td class="fw-bold text-nowrap" style="width:180px">Service Manager</td>
+                                    <td><code>@serviceManagerEndpoint</code></td>
+                                </tr>
+                                <tr>
+                                    <td class="fw-bold">Namespace</td>
+                                    <td><code>cloudsoa</code></td>
+                                </tr>
+                                <tr>
+                                    <td class="fw-bold">Client SDK Usage</td>
+                                    <td><code class="text-primary">new SessionStartInfo("@(brokerEndpoint != "" ? brokerEndpoint : "http://&lt;BROKER_IP&gt;")", "ServiceName")</code></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row g-3">
     <div class="col-lg-8">
         <div class="card">
@@ -120,6 +182,11 @@
     private string redisHealth = "Unknown";
     private string kubernetesHealth = "Unknown";
 
+    private string brokerEndpoint = "";
+    private string brokerInternal = "http://broker-service.cloudsoa:80";
+    private string portalEndpoint = "";
+    private string serviceManagerEndpoint = "http://servicemanager-service.cloudsoa:80";
+
     protected override async Task OnInitializedAsync()
     {
         try
@@ -137,6 +204,25 @@
             serviceManagerHealth = metrics.ServiceManagerHealthy ? "Healthy" : "Unhealthy";
             redisHealth = metrics.RedisHealthy ? "Healthy" : "Unhealthy";
             kubernetesHealth = metrics.KubernetesHealthy ? "Healthy" : "Unhealthy";
+
+            // Populate cluster endpoints from metrics
+            foreach (var kv in metrics.ClusterInfo)
+            {
+                if (kv.Key == "broker-service")
+                    brokerInternal = kv.Value;
+                else if (kv.Key == "portal-service")
+                    portalEndpoint = kv.Value;
+                else if (kv.Key == "servicemanager-service")
+                    serviceManagerEndpoint = kv.Value;
+            }
+
+            // Broker external endpoint: if LoadBalancer, it will be http://IP
+            // Otherwise show the internal endpoint
+            if (metrics.ClusterInfo.TryGetValue("broker-service", out var brokerUrl)
+                && !brokerUrl.Contains(".cloudsoa:"))
+            {
+                brokerEndpoint = brokerUrl;
+            }
         }
         catch
         {
