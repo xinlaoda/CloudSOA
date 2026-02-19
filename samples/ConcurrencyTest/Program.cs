@@ -56,8 +56,11 @@ for (int w = 0; w < concurrency; w++)
                 var callSw = Stopwatch.StartNew();
                 try
                 {
-                    var payload = $"Worker{workerId}-Call{i}: {DateTime.UtcNow:O}";
-                    client.SendRequest("Echo", payload);
+                    // Call Add(double, double) — sends XML payload for WCF deserialization
+                    double a = workerId * 100 + i;
+                    double b = i * 3.14;
+                    var payload = $"<Parameters><a>{a}</a><b>{b}</b></Parameters>";
+                    client.SendRequest("Add", payload);
                     await client.EndRequestsAsync();
 
                     var responses = await client.GetAllResponsesAsync(1, TimeSpan.FromSeconds(30));
