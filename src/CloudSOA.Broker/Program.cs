@@ -54,6 +54,7 @@ app.UseMiddleware<ApiKeyMiddleware>();
 // Prometheus metrics endpoint
 app.UseRouting();
 app.UseHttpMetrics();
+CloudSOA.Broker.Metrics.BrokerMetrics.Initialize();
 
 app.MapControllers();
 app.MapGrpcService<BrokerGrpcService>();

@@ -60,6 +60,9 @@ public class BrokerClientController : ControllerBase
 
         await _queue.EnqueueBatchAsync(requests, ct);
 
+        foreach (var r in requests)
+            Metrics.BrokerMetrics.RequestsEnqueued.WithLabels(sessionId, r.Action).Inc();
+
         // 确保 dispatcher 正在运行
         if (!_dispatcher.IsDispatching(sessionId))
             await _dispatcher.StartDispatchingAsync(sessionId, ct);
@@ -87,6 +90,8 @@ public class BrokerClientController : ControllerBase
     {
         var responses = await _responseStore.FetchAsync(sessionId, maxCount, ct);
         var remaining = await _responseStore.GetCountAsync(sessionId, ct);
+
+        Metrics.BrokerMetrics.ResponsesDelivered.Inc(responses.Count);
 
         return Ok(new
         {

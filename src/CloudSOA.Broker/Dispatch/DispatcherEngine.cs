@@ -39,6 +39,7 @@ public class DispatcherEngine : IDispatcherEngine, IDisposable
 
         _ = Task.Run(() => DispatchLoopAsync(sessionId, cts.Token), cts.Token);
         _logger.LogInformation("Started dispatching for session {SessionId}", sessionId);
+        Metrics.BrokerMetrics.ActiveDispatchers.Inc();
         return Task.CompletedTask;
     }
 
@@ -48,6 +49,7 @@ public class DispatcherEngine : IDispatcherEngine, IDisposable
         {
             cts.Cancel();
             cts.Dispose();
+            Metrics.BrokerMetrics.ActiveDispatchers.Dec();
             _logger.LogInformation("Stopped dispatching for session {SessionId}", sessionId);
         }
         return Task.CompletedTask;
@@ -65,9 +67,13 @@ public class DispatcherEngine : IDispatcherEngine, IDisposable
                 if (request == null)
                     continue;
 
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var response = await ProcessRequestAsync(request, ct);
                 await _responseStore.AddAsync(response, ct);
                 await _queue.AcknowledgeAsync(sessionId, request.MessageId, ct);
+                sw.Stop();
+                Metrics.BrokerMetrics.RequestsProcessed.Inc();
+                Metrics.BrokerMetrics.RequestLatency.Observe(sw.Elapsed.TotalSeconds);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -75,6 +81,7 @@ public class DispatcherEngine : IDispatcherEngine, IDisposable
             }
             catch (Exception ex)
             {
+                Metrics.BrokerMetrics.RequestsFailed.Inc();
                 _logger.LogError(ex, "Error in dispatch loop for session {SessionId}", sessionId);
                 await Task.Delay(1000, ct);
             }

@@ -1,0 +1,30 @@
+# KEDA ScaledObject — scales service host pods based on Redis stream length
+# Redis streams key pattern: cloudsoa:queue:{sessionId}
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: redis-trigger-auth
+  namespace: cloudsoa
+spec:
+  secretTargetRef:
+    - parameter: address
+      name: redis-secret
+      key: connection-string
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: calculatorservice-scaledobject
+  namespace: cloudsoa
+spec:
+  scaleTargetRef:
+    name: svc-calculatorservice
+  pollingInterval: 10
+  cooldownPeriod: 60
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  triggers:
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "70"

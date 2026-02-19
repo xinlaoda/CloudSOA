@@ -42,6 +42,9 @@ public class SessionManagerService : ISessionManager
         _logger.LogInformation("Session created: {SessionId} for service {ServiceName}",
             session.SessionId, session.ServiceName);
 
+        Metrics.BrokerMetrics.SessionsCreated.WithLabels(session.ServiceName).Inc();
+        Metrics.BrokerMetrics.ActiveSessions.Inc();
+
         return session;
     }
 
@@ -88,6 +91,9 @@ public class SessionManagerService : ISessionManager
 
         session.State = SessionState.Closed;
         await _store.SaveAsync(session, ct);
+
+        Metrics.BrokerMetrics.SessionsClosed.Inc();
+        Metrics.BrokerMetrics.ActiveSessions.Dec();
 
         _logger.LogInformation("Session closed: {SessionId}", sessionId);
     }

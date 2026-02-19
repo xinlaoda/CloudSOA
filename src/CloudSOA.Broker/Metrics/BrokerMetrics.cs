@@ -52,4 +52,20 @@ public static class BrokerMetrics
     // Dispatcher 指标
     public static readonly Gauge ActiveDispatchers = Prometheus.Metrics
         .CreateGauge("cloudsoa_dispatchers_active", "Number of active dispatcher loops");
+
+    /// <summary>
+    /// Publish all metrics with initial zero values so they appear in /metrics immediately.
+    /// </summary>
+    public static void Initialize()
+    {
+        ActiveSessions.Publish();
+        SessionsCreated.WithLabels("unknown").Publish();
+        SessionsClosed.Publish();
+        RequestsProcessed.Publish();
+        RequestsFailed.Publish();
+        RequestsDeadLettered.Publish();
+        ResponsesDelivered.Publish();
+        ActiveDispatchers.Publish();
+        RequestLatency.Publish();
+    }
 }
