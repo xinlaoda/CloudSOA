@@ -12,6 +12,7 @@ public class SessionManagerService : ISessionManager
     private readonly ILogger<SessionManagerService> _logger;
 
     private static readonly TimeSpan DefaultSessionIdleTimeout = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan DefaultDurableSessionIdleTimeout = TimeSpan.FromHours(24);
     private static readonly TimeSpan DefaultClientIdleTimeout = TimeSpan.FromMinutes(5);
 
     public SessionManagerService(ISessionStore store, ILogger<SessionManagerService> logger)
@@ -31,7 +32,10 @@ public class SessionManagerService : ISessionManager
             MinimumUnits = request.MinimumUnits,
             MaximumUnits = request.MaximumUnits,
             TransportScheme = request.TransportScheme,
-            SessionIdleTimeout = request.SessionIdleTimeout ?? DefaultSessionIdleTimeout,
+            SessionIdleTimeout = request.SessionIdleTimeout
+                ?? (request.SessionType == SessionType.Durable
+                    ? DefaultDurableSessionIdleTimeout
+                    : DefaultSessionIdleTimeout),
             ClientIdleTimeout = request.ClientIdleTimeout ?? DefaultClientIdleTimeout,
             CreatedAt = DateTime.UtcNow,
             LastAccessedAt = DateTime.UtcNow,

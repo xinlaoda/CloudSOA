@@ -42,6 +42,7 @@ public class SessionsController : ControllerBase
                 id = s.SessionId,
                 serviceName = s.ServiceName,
                 status = s.State.ToString(),
+                sessionType = s.SessionType.ToString(),
                 createdAt = s.CreatedAt,
                 lastAccessedAt = s.LastAccessedAt,
                 clientId = s.ClientId,
@@ -58,6 +59,14 @@ public class SessionsController : ControllerBase
         [FromBody] CreateSessionRequest request, CancellationToken ct)
     {
         var session = await _sessionManager.CreateSessionAsync(request, ct);
+
+        // Set response TTL to match session idle timeout for durable sessions
+        if (_responseStore is Queue.RedisResponseStore redisResponseStore)
+        {
+            await redisResponseStore.SetSessionResponseTtlAsync(
+                session.SessionId, session.SessionIdleTimeout);
+        }
+
         return CreatedAtAction(nameof(GetSession), new { sessionId = session.SessionId }, session);
     }
 

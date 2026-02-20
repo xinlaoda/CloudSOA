@@ -13,6 +13,7 @@ public class RedisResponseStore : IResponseStore
 {
     private const string ListPrefix = "cloudsoa:responses:";
     private const string CounterPrefix = "cloudsoa:resp-count:";
+    private const string TtlPrefix = "cloudsoa:resp-ttl:";
     private readonly IConnectionMultiplexer _redis;
     private readonly ILogger<RedisResponseStore> _logger;
 
@@ -29,12 +30,27 @@ public class RedisResponseStore : IResponseStore
 
     private IDatabase Db => _redis.GetDatabase();
 
+    /// <summary>Set response TTL for a session (call once after session creation).</summary>
+    public async Task SetSessionResponseTtlAsync(string sessionId, TimeSpan ttl)
+    {
+        await Db.StringSetAsync(TtlPrefix + sessionId, ttl.TotalSeconds.ToString(), ttl + TimeSpan.FromMinutes(5));
+    }
+
+    private async Task<TimeSpan> GetResponseTtlAsync(string sessionId)
+    {
+        var val = await Db.StringGetAsync(TtlPrefix + sessionId);
+        if (val.HasValue && double.TryParse(val!, out var seconds))
+            return TimeSpan.FromSeconds(seconds);
+        return TimeSpan.FromHours(1); // default for interactive
+    }
+
     public async Task AddAsync(BrokerResponse response, CancellationToken ct = default)
     {
         var key = ListPrefix + response.SessionId;
         var json = JsonSerializer.Serialize(response, JsonOpts);
         await Db.ListRightPushAsync(key, json);
-        await Db.KeyExpireAsync(key, TimeSpan.FromHours(1));
+        var ttl = await GetResponseTtlAsync(response.SessionId);
+        await Db.KeyExpireAsync(key, ttl);
         await Db.StringIncrementAsync(CounterPrefix + response.SessionId);
 
         _logger.LogDebug("Stored response {MessageId} for session {SessionId}",
