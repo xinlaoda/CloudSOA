@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# CloudSOA Azure 基础设施部署脚本
-# 用法: ./scripts/deploy-infra.sh --prefix cloudsoa --location eastus --environment dev
+# CloudSOA Azure Infrastructure Deployment Script
+# Usage: ./scripts/deploy-infra.sh --prefix cloudsoa --location eastus --environment dev
 # =============================================================================
 set -euo pipefail
 
@@ -14,14 +14,14 @@ log()  { echo -e "${GREEN}[✓]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 err()  { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 
-# 默认参数
+# Default parameters
 PREFIX="cloudsoa"
 LOCATION="eastus"
 ENVIRONMENT="dev"
 AKS_NODE_COUNT=3
 AKS_VM_SIZE="Standard_D4s_v3"
 
-# 解析参数
+# Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --prefix)      PREFIX="$2"; shift 2 ;;
@@ -30,14 +30,14 @@ while [[ $# -gt 0 ]]; do
         --node-count)  AKS_NODE_COUNT="$2"; shift 2 ;;
         --vm-size)     AKS_VM_SIZE="$2"; shift 2 ;;
         -h|--help)
-            echo "用法: $0 [选项]"
-            echo "  --prefix NAME        资源名称前缀 (默认: cloudsoa)"
-            echo "  --location REGION    Azure 区域 (默认: eastus)"
-            echo "  --environment ENV    环境标识 (默认: dev)"
-            echo "  --node-count N       AKS 节点数 (默认: 3)"
-            echo "  --vm-size SIZE       AKS VM 规格 (默认: Standard_D4s_v3)"
+            echo "Usage: $0 [options]"
+            echo "  --prefix NAME        Resource name prefix (default: cloudsoa)"
+            echo "  --location REGION    Azure region (default: eastus)"
+            echo "  --environment ENV    Environment identifier (default: dev)"
+            echo "  --node-count N       AKS node count (default: 3)"
+            echo "  --vm-size SIZE       AKS VM size (default: Standard_D4s_v3)"
             exit 0 ;;
-        *) err "未知参数: $1" ;;
+        *) err "Unknown argument: $1" ;;
     esac
 done
 
@@ -46,30 +46,30 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TF_DIR="${PROJECT_ROOT}/infra/terraform"
 
 echo "============================================"
-echo "  CloudSOA 基础设施部署"
+echo "  CloudSOA Infrastructure Deployment"
 echo "============================================"
-echo "  前缀:     ${PREFIX}"
-echo "  区域:     ${LOCATION}"
-echo "  环境:     ${ENVIRONMENT}"
-echo "  AKS节点:  ${AKS_NODE_COUNT} × ${AKS_VM_SIZE}"
+echo "  Prefix:     ${PREFIX}"
+echo "  Region:     ${LOCATION}"
+echo "  Environment: ${ENVIRONMENT}"
+echo "  AKS Nodes:  ${AKS_NODE_COUNT} × ${AKS_VM_SIZE}"
 echo "============================================"
 echo ""
 
-# ---- 检查前置条件 ----
-command -v az &>/dev/null       || err "请先安装 Azure CLI"
-command -v terraform &>/dev/null || err "请先安装 Terraform"
-az account show &>/dev/null      || err "请先运行 az login"
+# ---- Check prerequisites ----
+command -v az &>/dev/null       || err "Please install Azure CLI first"
+command -v terraform &>/dev/null || err "Please install Terraform first"
+az account show &>/dev/null      || err "Please run az login first"
 
 SUBSCRIPTION=$(az account show --query id -o tsv)
-log "当前订阅: ${SUBSCRIPTION}"
+log "Current subscription: ${SUBSCRIPTION}"
 
-# ---- 创建 Terraform State 后端 ----
+# ---- Create Terraform state backend ----
 TF_RG="${PREFIX}-tfstate"
 TF_SA="${PREFIX}tfstate"
 TF_CONTAINER="tfstate"
 
 echo ""
-log "创建 Terraform State 存储..."
+log "Creating Terraform state storage..."
 
 az group create -n "${TF_RG}" -l "${LOCATION}" -o none 2>/dev/null || true
 az storage account create -n "${TF_SA}" -g "${TF_RG}" -l "${LOCATION}" \
@@ -77,9 +77,9 @@ az storage account create -n "${TF_SA}" -g "${TF_RG}" -l "${LOCATION}" \
 az storage container create -n "${TF_CONTAINER}" \
     --account-name "${TF_SA}" -o none 2>/dev/null || true
 
-log "State 存储就绪: ${TF_SA}/${TF_CONTAINER}"
+log "State storage ready: ${TF_SA}/${TF_CONTAINER}"
 
-# ---- 生成 Terraform 变量文件 ----
+# ---- Generate Terraform variable files ----
 cd "${TF_DIR}"
 
 cat > terraform.tfvars <<EOF
@@ -94,7 +94,7 @@ tags = {
 }
 EOF
 
-log "已生成 terraform.tfvars"
+log "Generated terraform.tfvars"
 
 cat > backend.tfvars <<EOF
 resource_group_name  = "${TF_RG}"
@@ -103,7 +103,7 @@ container_name       = "${TF_CONTAINER}"
 key                  = "${PREFIX}.${ENVIRONMENT}.tfstate"
 EOF
 
-log "已生成 backend.tfvars"
+log "Generated backend.tfvars"
 
 # ---- Terraform Init & Apply ----
 echo ""
@@ -116,7 +116,7 @@ terraform plan -out=tfplan -input=false
 
 echo ""
 echo "============================================"
-echo "  即将创建以下资源:"
+echo "  Resources to be created:"
 echo "  - Resource Group: ${PREFIX}-rg"
 echo "  - AKS Cluster:    ${PREFIX}-aks"
 echo "  - ACR:            ${PREFIX}acr"
@@ -124,11 +124,11 @@ echo "  - Redis Cache:    ${PREFIX}-redis"
 echo "  - Service Bus:    ${PREFIX}-sb"
 echo "  - CosmosDB:       ${PREFIX}-cosmos"
 echo "============================================"
-read -p "确认部署? (y/N) " -n 1 -r
+read -p "Confirm deployment? (y/N) " -n 1 -r
 echo ""
 
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    warn "已取消部署"
+    warn "Deployment cancelled"
     exit 0
 fi
 
@@ -137,12 +137,12 @@ log "Terraform apply..."
 terraform apply tfplan
 
 echo ""
-log "保存输出..."
+log "Saving outputs..."
 terraform output -json > "${PROJECT_ROOT}/deploy/infra-outputs.json"
 
-# ---- 获取 AKS 凭证 ----
+# ---- Get AKS credentials ----
 echo ""
-log "获取 AKS 凭证..."
+log "Getting AKS credentials..."
 az aks get-credentials \
     --resource-group "${PREFIX}-rg" \
     --name "${PREFIX}-aks" \
@@ -150,19 +150,19 @@ az aks get-credentials \
 
 kubectl get nodes
 
-# ---- 输出摘要 ----
+# ---- Output summary ----
 echo ""
 echo "============================================"
-echo "  ✅ 基础设施部署完成！"
+echo "  ✅ Infrastructure deployment complete!"
 echo "============================================"
 echo ""
-echo "  AKS 集群:  $(terraform output -raw aks_name)"
-echo "  ACR 地址:  $(terraform output -raw acr_login_server)"
+echo "  AKS Cluster:  $(terraform output -raw aks_name)"
+echo "  ACR Server:   $(terraform output -raw acr_login_server)"
 echo "  Redis:     $(terraform output -raw redis_hostname)"
 echo ""
-echo "  输出已保存到: deploy/infra-outputs.json"
+echo "  Outputs saved to: deploy/infra-outputs.json"
 echo ""
-echo "  下一步:"
+echo "  Next steps:"
 echo "    1. ./scripts/build-images.sh --acr $(terraform output -raw acr_login_server | cut -d. -f1) --tag v1.0.0"
 echo "    2. ./scripts/deploy-k8s.sh"
 echo ""

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# CloudSOA AKS 集群部署脚本
-# 用法: ./scripts/deploy-k8s.sh --acr cloudsoacr.azurecr.io --tag v1.0.0 \
+# CloudSOA AKS Cluster Deployment Script
+# Usage: ./scripts/deploy-k8s.sh --acr cloudsoacr.azurecr.io --tag v1.0.0 \
 #         --redis-host "host:6380" --redis-password "xxx"
 # =============================================================================
 set -euo pipefail
@@ -31,15 +31,15 @@ while [[ $# -gt 0 ]]; do
         --namespace)      NAMESPACE="$2"; shift 2 ;;
         --install-keda)   INSTALL_KEDA=true; shift ;;
         -h|--help)
-            echo "用法: $0 [选项]"
-            echo "  --acr SERVER           ACR 地址 (如 myacr.azurecr.io)"
-            echo "  --tag TAG              镜像标签 (默认: latest)"
-            echo "  --redis-host HOST      Redis 地址 (如 host:6380)"
-            echo "  --redis-password PASS  Redis 密码"
-            echo "  --namespace NS         K8s 命名空间 (默认: cloudsoa)"
-            echo "  --install-keda         同时安装 KEDA"
+            echo "Usage: $0 [options]"
+            echo "  --acr SERVER           ACR server (e.g. myacr.azurecr.io)"
+            echo "  --tag TAG              Image tag (default: latest)"
+            echo "  --redis-host HOST      Redis host (e.g. host:6380)"
+            echo "  --redis-password PASS  Redis password"
+            echo "  --namespace NS         K8s namespace (default: cloudsoa)"
+            echo "  --install-keda         Also install KEDA"
             exit 0 ;;
-        *) err "未知参数: $1" ;;
+        *) err "Unknown argument: $1" ;;
     esac
 done
 
@@ -48,47 +48,47 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 K8S_DIR="${PROJECT_ROOT}/deploy/k8s"
 
 echo "============================================"
-echo "  CloudSOA K8s 部署"
+echo "  CloudSOA K8s Deployment"
 echo "============================================"
-echo "  ACR:        ${ACR_SERVER:-未指定}"
-echo "  镜像标签:    ${TAG}"
-echo "  命名空间:    ${NAMESPACE}"
+echo "  ACR:        ${ACR_SERVER:-not specified}"
+echo "  Image Tag:   ${TAG}"
+echo "  Namespace:   ${NAMESPACE}"
 echo "============================================"
 echo ""
 
-# ---- 检查前置条件 ----
-command -v kubectl &>/dev/null || err "请先安装 kubectl"
-kubectl cluster-info &>/dev/null || err "无法连接到 K8s 集群，请检查 kubeconfig"
+# ---- Check prerequisites ----
+command -v kubectl &>/dev/null || err "Please install kubectl first"
+kubectl cluster-info &>/dev/null || err "Cannot connect to K8s cluster, please check kubeconfig"
 
-log "已连接到集群"
+log "Connected to cluster"
 
-# ---- 创建命名空间 ----
-log "创建命名空间..."
+# ---- Create namespace ----
+log "Creating namespace..."
 kubectl apply -f "${K8S_DIR}/namespace.yaml"
 
-# ---- 创建 Secrets ----
+# ---- Create Secrets ----
 if [[ -n "${REDIS_HOST}" && -n "${REDIS_PASSWORD}" ]]; then
-    log "创建 Redis Secret..."
+    log "Creating Redis Secret..."
     kubectl create secret generic redis-secret \
         -n "${NAMESPACE}" \
         --from-literal=connection-string="${REDIS_HOST},password=${REDIS_PASSWORD},ssl=True,abortConnect=False" \
         --dry-run=client -o yaml | kubectl apply -f -
 fi
 
-# 生成 API Key
+# Generate API Key
 API_KEY=$(openssl rand -hex 32)
 kubectl create secret generic broker-auth \
     -n "${NAMESPACE}" \
     --from-literal=api-key="${API_KEY}" \
     --dry-run=client -o yaml | kubectl apply -f -
-log "Secrets 已创建 (API Key: ${API_KEY:0:8}...)"
+log "Secrets created (API Key: ${API_KEY:0:8}...)"
 
-# ---- 更新镜像地址并部署 ----
-log "部署 ConfigMap..."
+# ---- Update image references and deploy ----
+log "Deploying ConfigMap..."
 kubectl apply -f "${K8S_DIR}/broker-configmap.yaml"
 
-# 更新 Broker 镜像并部署
-log "部署 Broker..."
+# Update Broker image and deploy
+log "Deploying Broker..."
 if [[ -n "${ACR_SERVER}" ]]; then
     sed "s|cloudsoa.azurecr.io/broker:latest|${ACR_SERVER}/broker:${TAG}|g" \
         "${K8S_DIR}/broker-deployment.yaml" | kubectl apply -f -
@@ -96,14 +96,14 @@ else
     kubectl apply -f "${K8S_DIR}/broker-deployment.yaml"
 fi
 
-# 部署 Redis (开发环境)
+# Deploy Redis (dev environment)
 if [[ -z "${REDIS_HOST}" ]]; then
-    warn "未指定外部 Redis，部署集群内 Redis (仅用于开发)..."
+    warn "No external Redis specified, deploying in-cluster Redis (dev only)..."
     kubectl apply -f "${K8S_DIR}/redis.yaml"
 fi
 
-# 部署 ServiceHost
-log "部署 ServiceHost..."
+# Deploy ServiceHost
+log "Deploying ServiceHost..."
 if [[ -n "${ACR_SERVER}" ]]; then
     sed "s|cloudsoa.azurecr.io/servicehost:latest|${ACR_SERVER}/servicehost:${TAG}|g" \
         "${K8S_DIR}/servicehost-deployment.yaml" | kubectl apply -f -
@@ -111,40 +111,40 @@ else
     kubectl apply -f "${K8S_DIR}/servicehost-deployment.yaml"
 fi
 
-# ---- 安装 KEDA ----
+# ---- Install KEDA ----
 if [[ "${INSTALL_KEDA}" == true ]]; then
-    log "安装 KEDA..."
+    log "Installing KEDA..."
     helm repo add kedacore https://kedacore.github.io/charts 2>/dev/null || true
     helm repo update
     helm upgrade --install keda kedacore/keda \
         --namespace keda \
         --create-namespace \
         --wait
-    log "KEDA 安装完成"
+    log "KEDA installation complete"
 fi
 
-# ---- 等待部署就绪 ----
+# ---- Wait for deployment to be ready ----
 echo ""
-log "等待 Broker 就绪..."
+log "Waiting for Broker to be ready..."
 kubectl -n "${NAMESPACE}" rollout status deployment/broker --timeout=120s
 
 echo ""
-log "Pod 状态:"
+log "Pod status:"
 kubectl -n "${NAMESPACE}" get pods -o wide
 
 echo ""
-log "Service 状态:"
+log "Service status:"
 kubectl -n "${NAMESPACE}" get svc
 
 echo ""
 echo "============================================"
-echo "  ✅ K8s 部署完成！"
+echo "  ✅ K8s deployment complete!"
 echo "============================================"
 echo ""
-echo "  验证命令:"
+echo "  Verification commands:"
 echo "    kubectl -n ${NAMESPACE} port-forward svc/broker-service 5000:80 &"
 echo "    curl http://localhost:5000/healthz"
 echo ""
 echo "  API Key: ${API_KEY}"
-echo "  (使用 Header: X-Api-Key: ${API_KEY})"
+echo "  (Use Header: X-Api-Key: ${API_KEY})"
 echo ""

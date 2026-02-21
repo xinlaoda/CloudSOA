@@ -1,5 +1,5 @@
-# docker-compose.yaml — CloudSOA 本地开发环境
-# 用法: docker compose -f scripts/docker-compose.yaml up -d
+# docker-compose.yaml — CloudSOA Local Development Environment
+# Usage: docker compose -f scripts/docker-compose.yaml up -d
 
 services:
   redis:

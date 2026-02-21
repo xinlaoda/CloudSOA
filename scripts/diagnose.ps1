@@ -1,9 +1,9 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    CloudSOA 诊断脚本
+    CloudSOA Diagnostics Script
 .DESCRIPTION
-    检查 K8s 集群或本地开发环境的健康状态
+    Check the health status of the K8s cluster or local development environment
 .EXAMPLE
     .\scripts\diagnose.ps1
     .\scripts\diagnose.ps1 -Namespace myns
@@ -19,12 +19,12 @@ $ErrorActionPreference = 'Continue'
 function Write-Section { param($Msg) Write-Host "`n=== $Msg ===`n" -ForegroundColor Green }
 
 Write-Host '============================================'
-Write-Host '  CloudSOA 系统诊断'
-Write-Host "  命名空间: $Namespace"
-Write-Host "  时间:     $((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))"
+Write-Host '  CloudSOA System Diagnostics'
+Write-Host "  Namespace: $Namespace"
+Write-Host "  Time:      $((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))"
 Write-Host '============================================'
 
-# ---- 检查是否可连接 K8s ----
+# ---- Check K8s connectivity ----
 $k8sConnected = $false
 if (Get-Command kubectl -ErrorAction SilentlyContinue) {
     try {
@@ -34,26 +34,26 @@ if (Get-Command kubectl -ErrorAction SilentlyContinue) {
 }
 
 if (-not $k8sConnected) {
-    Write-Host "`n[!] 无法连接 K8s 集群，仅检查本地环境" -ForegroundColor Yellow
+    Write-Host "`n[!] Cannot connect to K8s cluster, checking local environment only" -ForegroundColor Yellow
 
-    Write-Section '本地服务状态'
+    Write-Section 'Local Service Status'
     try {
         $resp = Invoke-WebRequest -Uri 'http://localhost:5000/healthz' -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
         if ($resp.StatusCode -eq 200) {
             Write-Host 'Broker (localhost:5000): Healthy' -ForegroundColor Green
         }
     } catch {
-        Write-Host 'Broker (localhost:5000): 不可用' -ForegroundColor Red
+        Write-Host 'Broker (localhost:5000): unavailable' -ForegroundColor Red
     }
 
-    Write-Section 'Docker 容器'
+    Write-Section 'Docker Containers'
     if (Get-Command docker -ErrorAction SilentlyContinue) {
         docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>&1
     } else {
-        Write-Host 'Docker 不可用'
+        Write-Host 'Docker unavailable'
     }
 
-    Write-Section 'Redis 检查'
+    Write-Section 'Redis Check'
     try {
         $ping = docker exec cloudsoa-redis redis-cli ping 2>&1
         if ($ping -match 'PONG') {
@@ -61,26 +61,26 @@ if (-not $k8sConnected) {
             $dbsize = docker exec cloudsoa-redis redis-cli DBSIZE 2>&1
             Write-Host "Keys: $dbsize"
             Write-Host ''
-            Write-Host 'Session 相关 keys:'
+            Write-Host 'Session-related keys:'
             docker exec cloudsoa-redis redis-cli --scan --pattern 'cloudsoa:*' 2>&1 | Select-Object -First 20
         } else {
-            Write-Host 'Redis 不可用' -ForegroundColor Red
+            Write-Host 'Redis unavailable' -ForegroundColor Red
         }
     } catch {
-        Write-Host 'Redis 不可用' -ForegroundColor Red
+        Write-Host 'Redis unavailable' -ForegroundColor Red
     }
 
     exit 0
 }
 
-# ---- K8s 诊断 ----
-Write-Section '节点状态'
+# ---- K8s diagnostics ----
+Write-Section 'Node Status'
 kubectl get nodes -o wide
 
-Write-Section "命名空间 $Namespace 概览"
+Write-Section "Namespace $Namespace Overview"
 kubectl -n $Namespace get all
 
-Write-Section 'Pod 详情'
+Write-Section 'Pod Details'
 kubectl -n $Namespace get pods -o wide
 Write-Host ''
 
@@ -93,35 +93,35 @@ foreach ($pod in $pods) {
 
     if ($status -ne 'Running' -or ([int]$restarts -gt 5)) {
         Write-Host "${pod}: $status (restarts: $restarts)" -ForegroundColor Red
-        Write-Host '  最近日志:'
+        Write-Host '  Recent logs:'
         kubectl -n $Namespace logs $pod --tail=5 2>&1 | ForEach-Object { "    $_" }
     }
 }
 
-Write-Section 'Service 端点'
+Write-Section 'Service Endpoints'
 kubectl -n $Namespace get endpoints
 
-Write-Section 'HPA 状态'
+Write-Section 'HPA Status'
 kubectl -n $Namespace get hpa 2>&1
-if ($LASTEXITCODE -ne 0) { Write-Host '无 HPA' }
+if ($LASTEXITCODE -ne 0) { Write-Host 'No HPA' }
 
 Write-Section 'KEDA ScaledObjects'
 kubectl -n $Namespace get scaledobject 2>&1
-if ($LASTEXITCODE -ne 0) { Write-Host '无 KEDA ScaledObject' }
+if ($LASTEXITCODE -ne 0) { Write-Host 'No KEDA ScaledObject' }
 
-Write-Section '最近事件 (Warning)'
+Write-Section 'Recent Events (Warning)'
 $events = kubectl -n $Namespace get events --field-selector type=Warning --sort-by='.lastTimestamp' 2>&1
-if ($events) { $events | Select-Object -Last 10 } else { Write-Host '无警告事件' }
+if ($events) { $events | Select-Object -Last 10 } else { Write-Host 'No warning events' }
 
-Write-Section 'Broker 日志 (最近20行)'
+Write-Section 'Broker Logs (last 20 lines)'
 kubectl -n $Namespace logs -l app=broker --tail=20 2>&1
-if ($LASTEXITCODE -ne 0) { Write-Host '无 Broker Pod' }
+if ($LASTEXITCODE -ne 0) { Write-Host 'No Broker Pod' }
 
-Write-Section '资源使用'
+Write-Section 'Resource Usage'
 kubectl -n $Namespace top pods 2>&1
-if ($LASTEXITCODE -ne 0) { Write-Host 'Metrics server 未安装' }
+if ($LASTEXITCODE -ne 0) { Write-Host 'Metrics server not installed' }
 
 Write-Host ''
 Write-Host '============================================'
-Write-Host '  诊断完成'
+Write-Host '  Diagnostics complete'
 Write-Host '============================================'

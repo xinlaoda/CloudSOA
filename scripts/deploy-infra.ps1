@@ -1,9 +1,9 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    CloudSOA Azure 基础设施部署脚本
+    CloudSOA Azure Infrastructure Deployment Script
 .DESCRIPTION
-    使用 Terraform 部署 AKS、ACR、Redis、Service Bus、CosmosDB 等 Azure 资源
+    Deploy Azure resources (AKS, ACR, Redis, Service Bus, CosmosDB) using Terraform
 .EXAMPLE
     .\scripts\deploy-infra.ps1 -Prefix cloudsoa -Location eastus -Environment dev
 #>
@@ -31,40 +31,40 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $TfDir       = Join-Path $ProjectRoot 'infra\terraform'
 
 Write-Host '============================================'
-Write-Host '  CloudSOA 基础设施部署'
+Write-Host '  CloudSOA Infrastructure Deployment'
 Write-Host '============================================'
-Write-Host "  前缀:     $Prefix"
-Write-Host "  区域:     $Location"
-Write-Host "  环境:     $Environment"
-Write-Host "  AKS节点:  $AksNodeCount × $AksVmSize"
-Write-Host "  计算节点:  Linux=$AksComputeVmSize, Windows=$AksWinComputeVmSize"
+Write-Host "  Prefix:         $Prefix"
+Write-Host "  Region:         $Location"
+Write-Host "  Environment:    $Environment"
+Write-Host "  AKS Nodes:      $AksNodeCount × $AksVmSize"
+Write-Host "  Compute Nodes:  Linux=$AksComputeVmSize, Windows=$AksWinComputeVmSize"
 Write-Host '============================================'
 Write-Host ''
 
-# ---- 检查前置条件 ----
-if (-not (Get-Command az -ErrorAction SilentlyContinue))        { Write-Err '请先安装 Azure CLI' }
-if (-not (Get-Command terraform -ErrorAction SilentlyContinue)) { Write-Err '请先安装 Terraform' }
+# ---- Check prerequisites ----
+if (-not (Get-Command az -ErrorAction SilentlyContinue))        { Write-Err 'Please install Azure CLI first' }
+if (-not (Get-Command terraform -ErrorAction SilentlyContinue)) { Write-Err 'Please install Terraform first' }
 
-try { az account show 2>&1 | Out-Null } catch { Write-Err '请先运行 az login' }
+try { az account show 2>&1 | Out-Null } catch { Write-Err 'Please run az login first' }
 
 $Subscription = az account show --query id -o tsv
-Write-Log "当前订阅: $Subscription"
+Write-Log "Current subscription: $Subscription"
 
-# ---- 创建 Terraform State 后端 ----
+# ---- Create Terraform state backend ----
 $TfRg        = "$Prefix-tfstate"
 $TfSa        = "${Prefix}tfstate"
 $TfContainer = 'tfstate'
 
 Write-Host ''
-Write-Log '创建 Terraform State 存储...'
+Write-Log 'Creating Terraform state storage...'
 
 az group create -n $TfRg -l $Location -o none 2>&1 | Out-Null
 az storage account create -n $TfSa -g $TfRg -l $Location --sku Standard_LRS -o none 2>&1 | Out-Null
 az storage container create -n $TfContainer --account-name $TfSa -o none 2>&1 | Out-Null
 
-Write-Log "State 存储就绪: $TfSa/$TfContainer"
+Write-Log "State storage ready: $TfSa/$TfContainer"
 
-# ---- 生成 Terraform 变量文件 ----
+# ---- Generate Terraform variable files ----
 Push-Location $TfDir
 
 $rgNameLine = if ($ResourceGroupName) { "resource_group_name = `"$ResourceGroupName`"" } else { "# resource_group_name uses default: {prefix}-rg" }
@@ -85,7 +85,7 @@ tags = {
 }
 "@ | Set-Content -Path 'terraform.tfvars' -Encoding utf8
 
-Write-Log '已生成 terraform.tfvars'
+Write-Log 'Generated terraform.tfvars'
 
 @"
 resource_group_name  = "$TfRg"
@@ -94,7 +94,7 @@ container_name       = "$TfContainer"
 key                  = "$Prefix.$Environment.tfstate"
 "@ | Set-Content -Path 'backend.tfvars' -Encoding utf8
 
-Write-Log '已生成 backend.tfvars'
+Write-Log 'Generated backend.tfvars'
 
 # ---- Terraform Init & Apply ----
 # Clean old state if exists
@@ -111,7 +111,7 @@ terraform plan -out=tfplan -input=false
 
 Write-Host ''
 Write-Host '============================================'
-Write-Host '  即将创建以下资源:'
+Write-Host '  Resources to be created:'
 Write-Host "  - Resource Group: $RgActual"
 Write-Host "  - AKS Cluster:    $Prefix-aks"
 Write-Host "  - ACR:            ${Prefix}acr"
@@ -121,14 +121,14 @@ Write-Host "  - CosmosDB:       $Prefix-cosmos"
 Write-Host '============================================'
 
 if (-not $AutoApprove) {
-    $reply = Read-Host '确认部署? (y/N)'
+    $reply = Read-Host 'Confirm deployment? (y/N)'
     if ($reply -notin @('y', 'Y')) {
-        Write-Warn '已取消部署'
+        Write-Warn 'Deployment cancelled'
         Pop-Location
         exit 0
     }
 } else {
-    Write-Log '自动确认部署 (-AutoApprove)'
+    Write-Log 'Auto-confirmed deployment (-AutoApprove)'
 }
 
 Write-Host ''
@@ -136,28 +136,28 @@ Write-Log 'Terraform apply...'
 terraform apply tfplan
 
 Write-Host ''
-Write-Log '保存输出...'
+Write-Log 'Saving outputs...'
 $outputPath = Join-Path $ProjectRoot 'deploy\infra-outputs.json'
 terraform output -json | Set-Content -Path $outputPath -Encoding utf8
 
-# ---- 获取 AKS 凭证 ----
+# ---- Get AKS credentials ----
 Write-Host ''
-Write-Log '获取 AKS 凭证...'
+Write-Log 'Getting AKS credentials...'
 $rgName  = terraform output -raw resource_group_name
 $aksName = terraform output -raw aks_name
 az aks get-credentials --resource-group $rgName --name $aksName --overwrite-existing
 kubectl get nodes
 
-# ---- 绑定 ACR 到 AKS ----
+# ---- Attach ACR to AKS ----
 Write-Host ''
 $acrLoginServer = terraform output -raw acr_login_server
 $acrAttachName = ($acrLoginServer -split '\.')[0]
-Write-Log "绑定 ACR ($acrAttachName) 到 AKS ($aksName)..."
+Write-Log "Attaching ACR ($acrAttachName) to AKS ($aksName)..."
 az aks update --resource-group $rgName --name $aksName --attach-acr $acrAttachName
 
 Pop-Location
 
-# ---- 输出摘要 ----
+# ---- Output summary ----
 Push-Location $TfDir
 $aksName       = terraform output -raw aks_name
 $acrServer     = terraform output -raw acr_login_server
@@ -167,16 +167,16 @@ Pop-Location
 
 Write-Host ''
 Write-Host '============================================'
-Write-Host '  ✅ 基础设施部署完成！'
+Write-Host '  ✅ Infrastructure deployment complete!'
 Write-Host '============================================'
 Write-Host ''
-Write-Host "  AKS 集群:  $aksName"
-Write-Host "  ACR 地址:  $acrServer"
+Write-Host "  AKS Cluster:  $aksName"
+Write-Host "  ACR Server:   $acrServer"
 Write-Host "  Redis:     $redisHostname"
 Write-Host ''
-Write-Host "  输出已保存到: deploy\infra-outputs.json"
+Write-Host "  Outputs saved to: deploy\infra-outputs.json"
 Write-Host ''
-Write-Host '  下一步:'
+Write-Host '  Next steps:'
 Write-Host "    1. .\scripts\build-images.ps1 -AcrName $acrShort -Tag v1.0.0"
 Write-Host '    2. .\scripts\deploy-k8s.ps1'
 Write-Host ''
