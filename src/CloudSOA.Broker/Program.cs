@@ -18,16 +18,19 @@ var certKeyPath = builder.Configuration["Tls:KeyPath"];
 
 if (string.Equals(tlsMode, "direct", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(certPath))
 {
+    // Clear default HTTP_PORTS to avoid conflict with explicit Kestrel endpoints
+    Environment.SetEnvironmentVariable("ASPNETCORE_HTTP_PORTS", null);
+    Environment.SetEnvironmentVariable("ASPNETCORE_URLS", null);
     builder.WebHost.ConfigureKestrel(kestrel =>
     {
-        // HTTPS endpoint for REST clients
+        // HTTP endpoint for REST clients (health checks, internal)
         kestrel.ListenAnyIP(5000, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2);
         kestrel.ListenAnyIP(5443, o =>
         {
             o.UseHttps(certPath, certPassword);
             o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
         });
-        // gRPC over TLS
+        // gRPC endpoints
         kestrel.ListenAnyIP(5001, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2);
         kestrel.ListenAnyIP(5444, o =>
         {
@@ -39,10 +42,20 @@ if (string.Equals(tlsMode, "direct", StringComparison.OrdinalIgnoreCase) && !str
 }
 else if (string.Equals(tlsMode, "ingress", StringComparison.OrdinalIgnoreCase))
 {
+    builder.WebHost.ConfigureKestrel(kestrel =>
+    {
+        kestrel.ListenAnyIP(5000, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2);
+        kestrel.ListenAnyIP(5001, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2);
+    });
     Console.WriteLine("[TLS] Ingress mode: TLS terminated at ingress controller, internal traffic is plain HTTP");
 }
 else
 {
+    builder.WebHost.ConfigureKestrel(kestrel =>
+    {
+        kestrel.ListenAnyIP(5000, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2);
+        kestrel.ListenAnyIP(5001, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2);
+    });
     Console.WriteLine("[TLS] No TLS configured (development mode). Set Tls:Mode=direct or Tls:Mode=ingress for production.");
 }
 

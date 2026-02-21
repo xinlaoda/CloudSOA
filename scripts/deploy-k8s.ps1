@@ -163,12 +163,15 @@ $redisConnStr = if ($RedisHost -and $RedisPassword) {
 }
 $cmArgs = @(
     "ConnectionStrings__Redis=$redisConnStr",
-    "Kestrel__Endpoints__Http__Url=http://0.0.0.0:5000",
-    "Kestrel__Endpoints__Grpc__Url=http://0.0.0.0:5001",
-    "Kestrel__Endpoints__Grpc__Protocols=Http2",
     "ServiceManager__BaseUrl=http://servicemanager-service",
     "Authentication__Mode=$AuthMode"
 )
+# Only set Kestrel endpoints when TLS is NOT used (code configures them in TLS mode)
+if ($SkipTls) {
+    $cmArgs += "Kestrel__Endpoints__Http__Url=http://0.0.0.0:5000"
+    $cmArgs += "Kestrel__Endpoints__Grpc__Url=http://0.0.0.0:5001"
+    $cmArgs += "Kestrel__Endpoints__Grpc__Protocols=Http2"
+}
 if ($BlobConnectionString) {
     $cmArgs += "ConnectionStrings__BlobStorage=$BlobConnectionString"
 }

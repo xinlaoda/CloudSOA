@@ -15,5 +15,5 @@ RUN dotnet publish -c Release -o /app/publish
 FROM base AS final
 WORKDIR /app
 COPY --from=build /app/publish .
-ENV ASPNETCORE_URLS="http://+:5000;http://+:5001"
+# Ports configured by Program.cs based on TLS mode
 ENTRYPOINT ["dotnet", "CloudSOA.Broker.dll"]
