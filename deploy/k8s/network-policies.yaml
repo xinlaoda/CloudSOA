@@ -1,0 +1,142 @@
+##############################################################################
+# CloudSOA Network Policies
+# Restricts inter-service traffic within the cloudsoa namespace.
+# - Broker: accepts traffic from external (LoadBalancer), portal, ingress
+# - ServiceHost: accepts traffic only from broker (gRPC on 5010)
+# - ServiceManager: accepts traffic only from portal and broker
+# - Portal: accepts traffic from external (LoadBalancer)
+# - Redis: accepts traffic only from broker
+##############################################################################
+
+---
+# Default deny all ingress in the namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: cloudsoa
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# Broker: allow from external (any) on port 80/5001, and from portal/servicemanager
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-broker-ingress
+  namespace: cloudsoa
+spec:
+  podSelector:
+    matchLabels:
+      app: broker
+  policyTypes:
+    - Ingress
+  ingress:
+    # External client traffic (LoadBalancer)
+    - ports:
+        - port: 5000
+          protocol: TCP
+        - port: 5001
+          protocol: TCP
+        - port: 5443
+          protocol: TCP
+        - port: 5444
+          protocol: TCP
+    # From portal (internal)
+    - from:
+        - podSelector:
+            matchLabels:
+              app: portal
+      ports:
+        - port: 5000
+          protocol: TCP
+
+---
+# ServiceHost (all service pods): only from broker on gRPC port 5010
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-servicehost-ingress
+  namespace: cloudsoa
+spec:
+  podSelector:
+    matchExpressions:
+      - key: cloudsoa/service
+        operator: Exists
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: broker
+      ports:
+        - port: 5010
+          protocol: TCP
+
+---
+# ServiceManager: only from portal and broker
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-servicemanager-ingress
+  namespace: cloudsoa
+spec:
+  podSelector:
+    matchLabels:
+      app: servicemanager
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: portal
+        - podSelector:
+            matchLabels:
+              app: broker
+      ports:
+        - port: 5020
+          protocol: TCP
+
+---
+# Portal: allow from external (LoadBalancer) on container port 5030
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-portal-ingress
+  namespace: cloudsoa
+spec:
+  podSelector:
+    matchLabels:
+      app: portal
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 5030
+          protocol: TCP
+
+---
+# Redis: only from broker
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-ingress
+  namespace: cloudsoa
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: broker
+      ports:
+        - port: 6379
+          protocol: TCP
