@@ -113,6 +113,9 @@ app.UseMiddleware<AuthenticationMiddleware>();
 // Authorization middleware (RBAC: Admin / User / Reader)
 app.UseMiddleware<AuthorizationMiddleware>();
 
+// Audit logging middleware (structured logs for mutating operations)
+app.UseMiddleware<AuditLoggingMiddleware>();
+
 // Prometheus metrics endpoint
 app.UseRouting();
 app.UseHttpMetrics();
