@@ -24,7 +24,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 resource "azurerm_kubernetes_cluster_node_pool" "compute" {
   name                  = "compute"
   kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_D8s_v3"
+  vm_size               = var.aks_compute_vm_size
   min_count             = 0
   max_count             = 50
   enable_auto_scaling   = true
@@ -40,9 +40,9 @@ resource "azurerm_kubernetes_cluster_node_pool" "compute" {
 }
 
 resource "azurerm_kubernetes_cluster_node_pool" "wincompute" {
-  name                  = "wincomp"
+  name                  = "wincom"
   kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_D4s_v3"
+  vm_size               = var.aks_win_compute_vm_size
   os_type               = "Windows"
   min_count             = 0
   max_count             = 20
@@ -51,7 +51,6 @@ resource "azurerm_kubernetes_cluster_node_pool" "wincompute" {
 
   node_labels = {
     "cloudsoa/role" = "compute-windows"
-    "kubernetes.io/os" = "windows"
   }
 
   node_taints = [

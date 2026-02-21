@@ -18,6 +18,14 @@ public class ServiceHostRunner
     public static WebApplication Build(string[] args, string? dllPath = null)
     {
         var builder = WebApplication.CreateBuilder(args);
+
+        // Configure Kestrel for gRPC (HTTP/2)
+        builder.WebHost.ConfigureKestrel(kestrel =>
+        {
+            kestrel.ListenAnyIP(5010, o =>
+                o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2);
+        });
+
         builder.Services.AddGrpc();
         builder.Services.AddHealthChecks();
 

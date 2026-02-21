@@ -26,6 +26,12 @@ spec:
           envFrom:
             - configMapRef:
                 name: broker-config
+          env:
+            - name: Authentication__ApiKey
+              valueFrom:
+                secretKeyRef:
+                  name: broker-auth
+                  key: api-key
           resources:
             requests:
               cpu: "250m"
@@ -61,8 +67,7 @@ spec:
     - name: grpc
       port: 5001
       targetPort: 5001
-  type: ClusterIP
----
+  type: LoadBalancer---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

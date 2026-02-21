@@ -15,6 +15,7 @@ spec:
       labels:
         app: servicemanager
     spec:
+      serviceAccountName: servicemanager-sa
       imagePullSecrets:
         - name: acr-secret
       containers:

@@ -1,19 +1,26 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    CloudSOA 容器镜像构建脚本
+    CloudSOA Container Image Build Script
 .DESCRIPTION
-    构建 Broker 和 ServiceHost Docker 镜像并推送到 ACR
+    Builds all CloudSOA Docker images (Broker, Portal, ServiceManager,
+    ServiceHost, ServiceHost-CoreWcf) and optionally pushes to ACR.
+    Use -UseAcrBuild for remote builds (no local Docker required).
 .EXAMPLE
-    .\scripts\build-images.ps1 -AcrName cloudsoacr -Tag v1.0.0
+    .\scripts\build-images.ps1 -AcrName cloudsoacr -Tag v1.8.0
+    .\scripts\build-images.ps1 -AcrName cloudsoacr -Tag v1.8.0 -UseAcrBuild
     .\scripts\build-images.ps1 -NoPush
+    .\scripts\build-images.ps1 -AcrName cloudsoacr -Tag v1.8.0 -Images broker,portal
 #>
 
 [CmdletBinding()]
 param(
-    [string]$AcrName = '',
-    [string]$Tag     = 'latest',
-    [switch]$NoPush
+    [string]$AcrName    = '',
+    [string]$Tag        = 'latest',
+    [switch]$NoPush,
+    [switch]$UseAcrBuild,
+    [switch]$SkipTests,
+    [string[]]$Images   = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,66 +33,97 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $ProjectRoot
 
 try {
-    Write-Host '============================================'
-    Write-Host '  CloudSOA 镜像构建'
-    Write-Host '============================================'
+    # ---- Image definitions ----
+    $AllImages = [ordered]@{
+        'broker'              = @{ Dockerfile = 'src\CloudSOA.Broker\Dockerfile';              Platform = 'linux' }
+        'portal'              = @{ Dockerfile = 'src\CloudSOA.Portal\Dockerfile';               Platform = 'linux' }
+        'servicemanager'      = @{ Dockerfile = 'src\CloudSOA.ServiceManager\Dockerfile';       Platform = 'linux' }
+        'servicehost'         = @{ Dockerfile = 'src\CloudSOA.ServiceHost\Dockerfile';          Platform = 'linux' }
+        'servicehost-corewcf' = @{ Dockerfile = 'src\CloudSOA.ServiceHost.CoreWcf\Dockerfile';  Platform = 'linux' }
+    }
 
-    # ---- 先运行测试 ----
-    Write-Log '运行单元测试...'
-    dotnet test --nologo --verbosity quiet --filter 'Category!=Integration'
-    Write-Log '测试通过'
+    # Filter images if user specified a subset
+    if ($Images.Count -gt 0) {
+        $filtered = [ordered]@{}
+        foreach ($img in $Images) {
+            if ($AllImages.Contains($img)) { $filtered[$img] = $AllImages[$img] }
+            else { Write-Warn "Unknown image '$img', skipping. Valid: $($AllImages.Keys -join ', ')" }
+        }
+        if ($filtered.Count -eq 0) { Write-Err "No valid images specified" }
+        $AllImages = $filtered
+    }
 
-    # ---- 确定镜像前缀 ----
+    Write-Host '============================================'
+    Write-Host '  CloudSOA Image Build'
+    Write-Host '============================================'
+    Write-Host "  Images: $($AllImages.Keys -join ', ')"
+    Write-Host "  Tag:    $Tag"
+    Write-Host "  Method: $(if ($UseAcrBuild) { 'ACR Build (remote)' } else { 'Docker (local)' })"
+    Write-Host '============================================'
+    Write-Host ''
+
+    # ---- Run tests ----
+    if (-not $SkipTests) {
+        Write-Log 'Running unit tests...'
+        dotnet test --nologo --verbosity quiet --filter 'Category!=Integration'
+        Write-Log 'Tests passed'
+    } else {
+        Write-Warn 'Skipping tests (-SkipTests)'
+    }
+
+    # ---- Determine image prefix ----
     if ($AcrName) {
         $AcrServer = "$AcrName.azurecr.io"
-        if (-not $NoPush) {
-            Write-Log "登录 ACR: $AcrName..."
+        if (-not $UseAcrBuild -and -not $NoPush) {
+            Write-Log "Logging into ACR: $AcrName..."
             az acr login --name $AcrName
         }
     } else {
         $AcrServer = 'cloudsoa'
-        Write-Warn '未指定 ACR，仅本地构建 (使用 -AcrName 指定)'
+        Write-Warn 'No ACR specified, local build only (use -AcrName to specify)'
     }
 
-    # ---- 构建 Broker ----
-    Write-Host ''
-    Write-Log '构建 Broker 镜像...'
-    docker build -t "${AcrServer}/broker:${Tag}" -f src\CloudSOA.Broker\Dockerfile .
-    Write-Log "Broker 镜像构建完成: ${AcrServer}/broker:${Tag}"
-
-    # ---- 构建 ServiceHost ----
-    Write-Host ''
-    Write-Log '构建 ServiceHost 镜像...'
-    docker build -t "${AcrServer}/servicehost:${Tag}" -f src\CloudSOA.ServiceHost\Dockerfile .
-    Write-Log "ServiceHost 镜像构建完成: ${AcrServer}/servicehost:${Tag}"
-
-    # ---- 打 latest 标签 ----
-    if ($Tag -ne 'latest') {
-        docker tag "${AcrServer}/broker:${Tag}" "${AcrServer}/broker:latest"
-        docker tag "${AcrServer}/servicehost:${Tag}" "${AcrServer}/servicehost:latest"
-    }
-
-    # ---- 推送 ----
-    if ((-not $NoPush) -and $AcrName) {
+    # ---- Build each image ----
+    $builtImages = @()
+    foreach ($name in $AllImages.Keys) {
+        $def = $AllImages[$name]
+        $fullTag = "${AcrServer}/${name}:${Tag}"
         Write-Host ''
-        Write-Log '推送镜像到 ACR...'
-        docker push "${AcrServer}/broker:${Tag}"
-        docker push "${AcrServer}/servicehost:${Tag}"
 
-        if ($Tag -ne 'latest') {
-            docker push "${AcrServer}/broker:latest"
-            docker push "${AcrServer}/servicehost:latest"
+        if ($UseAcrBuild -and $AcrName) {
+            Write-Log "Building $name via ACR Build..."
+            $platform = if ($def.Platform -eq 'windows') { '--platform windows' } else { '--platform linux' }
+            az acr build --registry $AcrName --image "${name}:${Tag}" --file $def.Dockerfile $platform . 2>&1 |
+                Select-Object -Last 5 | ForEach-Object { Write-Host "    $_" }
+        } else {
+            Write-Log "Building $name (docker)..."
+            docker build -t $fullTag -f $def.Dockerfile .
         }
+        Write-Log "$name built: $fullTag"
+        $builtImages += $fullTag
 
-        Write-Log '镜像推送完成'
+        # Tag latest
+        if ($Tag -ne 'latest' -and -not $UseAcrBuild) {
+            docker tag $fullTag "${AcrServer}/${name}:latest"
+        }
+    }
+
+    # ---- Push ----
+    if ((-not $NoPush) -and $AcrName -and (-not $UseAcrBuild)) {
+        Write-Host ''
+        Write-Log 'Pushing images to ACR...'
+        foreach ($name in $AllImages.Keys) {
+            docker push "${AcrServer}/${name}:${Tag}"
+            if ($Tag -ne 'latest') { docker push "${AcrServer}/${name}:latest" }
+        }
+        Write-Log 'Push complete'
     }
 
     Write-Host ''
     Write-Host '============================================'
-    Write-Host '  ✅ 镜像构建完成！'
+    Write-Host '  ✅ Image Build Complete!'
     Write-Host '============================================'
-    Write-Host "  Broker:      ${AcrServer}/broker:${Tag}"
-    Write-Host "  ServiceHost: ${AcrServer}/servicehost:${Tag}"
+    foreach ($img in $builtImages) { Write-Host "  $img" }
     Write-Host ''
 } finally {
     Pop-Location

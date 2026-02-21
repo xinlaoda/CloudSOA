@@ -33,7 +33,7 @@ resource "azurerm_private_endpoint" "redis" {
 resource "azurerm_redis_firewall_rule" "deny_all" {
   count               = var.enable_private_networking ? 0 : 0
   # Note: Redis public_network_access is controlled below
-  name                = "deny-all"
+  name                = "deny_all"
   redis_cache_name    = azurerm_redis_cache.redis.name
   resource_group_name = azurerm_resource_group.main.name
   start_ip            = "0.0.0.0"

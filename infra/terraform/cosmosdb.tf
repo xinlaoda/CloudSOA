@@ -33,3 +33,11 @@ resource "azurerm_cosmosdb_sql_container" "sessions" {
   database_name       = azurerm_cosmosdb_sql_database.db.name
   partition_key_path  = "/sessionId"
 }
+
+resource "azurerm_cosmosdb_sql_container" "service_registrations" {
+  name                = "service-registrations"
+  resource_group_name = azurerm_resource_group.main.name
+  account_name        = azurerm_cosmosdb_account.cosmos.name
+  database_name       = azurerm_cosmosdb_sql_database.db.name
+  partition_key_path  = "/serviceName"
+}

@@ -13,8 +13,11 @@ param(
     [string]$Prefix      = 'cloudsoa',
     [string]$Location    = 'eastus',
     [string]$Environment = 'dev',
-    [int]$AksNodeCount   = 3,
-    [string]$AksVmSize   = 'Standard_D4s_v3'
+    [int]$AksNodeCount          = 3,
+    [string]$AksVmSize          = 'Standard_D4_v2',
+    [string]$AksComputeVmSize   = 'Standard_D4_v2',
+    [string]$AksWinComputeVmSize = 'Standard_D4_v2',
+    [string]$ResourceGroupName  = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,6 +36,7 @@ Write-Host "  前缀:     $Prefix"
 Write-Host "  区域:     $Location"
 Write-Host "  环境:     $Environment"
 Write-Host "  AKS节点:  $AksNodeCount × $AksVmSize"
+Write-Host "  计算节点:  Linux=$AksComputeVmSize, Windows=$AksWinComputeVmSize"
 Write-Host '============================================'
 Write-Host ''
 
@@ -62,11 +66,17 @@ Write-Log "State 存储就绪: $TfSa/$TfContainer"
 # ---- 生成 Terraform 变量文件 ----
 Push-Location $TfDir
 
+$rgNameLine = if ($ResourceGroupName) { "resource_group_name = `"$ResourceGroupName`"" } else { "# resource_group_name uses default: {prefix}-rg" }
+$RgActual = if ($ResourceGroupName) { $ResourceGroupName } else { "$Prefix-rg" }
+
 @"
-prefix         = "$Prefix"
-location       = "$Location"
-aks_node_count = $AksNodeCount
-aks_vm_size    = "$AksVmSize"
+prefix                  = "$Prefix"
+location                = "$Location"
+aks_node_count          = $AksNodeCount
+aks_vm_size             = "$AksVmSize"
+aks_compute_vm_size     = "$AksComputeVmSize"
+aks_win_compute_vm_size = "$AksWinComputeVmSize"
+$rgNameLine
 tags = {
   project     = "CloudSOA"
   environment = "$Environment"
@@ -86,9 +96,13 @@ key                  = "$Prefix.$Environment.tfstate"
 Write-Log '已生成 backend.tfvars'
 
 # ---- Terraform Init & Apply ----
+# Clean old state if exists
+if (Test-Path '.terraform') { Remove-Item -Recurse -Force .terraform }
+if (Test-Path '.terraform.lock.hcl') { Remove-Item -Force .terraform.lock.hcl }
+
 Write-Host ''
 Write-Log 'Terraform init...'
-terraform init -backend-config=backend.tfvars -input=false
+terraform init "-backend-config=backend.tfvars" -input=false
 
 Write-Host ''
 Write-Log 'Terraform plan...'
@@ -97,7 +111,7 @@ terraform plan -out=tfplan -input=false
 Write-Host ''
 Write-Host '============================================'
 Write-Host '  即将创建以下资源:'
-Write-Host "  - Resource Group: $Prefix-rg"
+Write-Host "  - Resource Group: $RgActual"
 Write-Host "  - AKS Cluster:    $Prefix-aks"
 Write-Host "  - ACR:            ${Prefix}acr"
 Write-Host "  - Redis Cache:    $Prefix-redis"
@@ -124,7 +138,9 @@ terraform output -json | Set-Content -Path $outputPath -Encoding utf8
 # ---- 获取 AKS 凭证 ----
 Write-Host ''
 Write-Log '获取 AKS 凭证...'
-az aks get-credentials --resource-group "$Prefix-rg" --name "$Prefix-aks" --overwrite-existing
+$rgName  = terraform output -raw resource_group_name
+$aksName = terraform output -raw aks_name
+az aks get-credentials --resource-group $rgName --name $aksName --overwrite-existing
 kubectl get nodes
 
 Pop-Location

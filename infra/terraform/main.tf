@@ -16,7 +16,7 @@ provider "azurerm" {
 }
 
 resource "azurerm_resource_group" "main" {
-  name     = "${var.prefix}-rg"
+  name     = var.resource_group_name != "" ? var.resource_group_name : "${var.prefix}-rg"
   location = var.location
   tags     = var.tags
 }

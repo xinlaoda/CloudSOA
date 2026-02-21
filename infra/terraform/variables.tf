@@ -4,6 +4,12 @@ variable "prefix" {
   default     = "cloudsoa"
 }
 
+variable "resource_group_name" {
+  description = "Override resource group name (default: {prefix}-rg)"
+  type        = string
+  default     = ""
+}
+
 variable "location" {
   description = "Azure region"
   type        = string
@@ -28,7 +34,19 @@ variable "aks_node_count" {
 variable "aks_vm_size" {
   description = "AKS node VM size"
   type        = string
-  default     = "Standard_D4s_v3"
+  default     = "Standard_D4_v2"
+}
+
+variable "aks_compute_vm_size" {
+  description = "AKS Linux compute node pool VM size"
+  type        = string
+  default     = "Standard_D4_v2"
+}
+
+variable "aks_win_compute_vm_size" {
+  description = "AKS Windows compute node pool VM size"
+  type        = string
+  default     = "Standard_D4_v2"
 }
 
 variable "redis_sku" {
