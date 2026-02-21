@@ -110,6 +110,9 @@ if (string.Equals(tlsMode, "direct", StringComparison.OrdinalIgnoreCase))
 // Authentication middleware (JWT / API Key / none)
 app.UseMiddleware<AuthenticationMiddleware>();
 
+// Authorization middleware (RBAC: Admin / User / Reader)
+app.UseMiddleware<AuthorizationMiddleware>();
+
 // Prometheus metrics endpoint
 app.UseRouting();
 app.UseHttpMetrics();
