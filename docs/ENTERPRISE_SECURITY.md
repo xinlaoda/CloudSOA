@@ -1,6 +1,6 @@
 # CloudSOA Enterprise Security Configuration & Deployment Guide
 
-> **Version**: v1.6.0 | **Last Updated**: 2026-02-21 | **Target Audience**: Enterprise environments (finance, government, healthcare) with strict security requirements
+> **Version**: v1.7.0 | **Last Updated**: 2026-02-21 | **Target Audience**: Enterprise environments (finance, government, healthcare) with strict security requirements
 
 ---
 
@@ -16,6 +16,7 @@
 8. [Deployment Patterns & Best Practices](#8-deployment-patterns--best-practices)
 9. [HPC Pack SOA Security Comparison](#9-hpc-pack-soa-security-comparison)
 10. [Security Hardening Checklist](#10-security-hardening-checklist)
+11. [Private Networking & Azure Private Link](#11-private-networking--azure-private-link)
 
 ---
 
@@ -59,6 +60,7 @@ CloudSOA employs a **Defense-in-Depth** strategy with five security layers:
 | Authorization | AuthorizationMiddleware | v1.4.0 | (linked to authentication) |
 | Audit Logging | AuditLoggingMiddleware | v1.5.0 | (always enabled) |
 | Network Isolation | K8s NetworkPolicy + Calico | v1.6.0 | `network-policies.yaml` |
+| Private Networking | VNet + Private Link + Private Endpoints | v1.7.0 | `enable_private_networking` |
 
 ---
 
@@ -787,12 +789,13 @@ kubectl create secret generic broker-secrets \
 
 ### 8.2 Deployment Environment Matrix
 
-| Environment | TLS Mode | Auth Mode | Network Policies | Audit Logging | Replicas |
-|------------|---------|-----------|-----------------|---------------|----------|
-| **Development** | none | none | Not deployed | ✅ (default) | 1 |
-| **Testing** | direct (self-signed) | apikey | Deployed | ✅ | 1–2 |
-| **Staging** | ingress (enterprise CA) | jwt | Deployed | ✅ | 2–3 |
-| **Production** | ingress (enterprise CA) | jwt + apikey | Deployed | ✅ | 3+ (HPA) |
+| Environment | TLS Mode | Auth Mode | Network Policies | Audit Logging | Replicas | Private Networking |
+|------------|---------|-----------|-----------------|---------------|----------|-------------------|
+| **Development** | none | none | Not deployed | ✅ (default) | 1 | No |
+| **Testing** | direct (self-signed) | apikey | Deployed | ✅ | 1–2 | No |
+| **Staging** | ingress (enterprise CA) | jwt | Deployed | ✅ | 2–3 | Optional |
+| **Production** | ingress (enterprise CA) | jwt + apikey | Deployed | ✅ | 3+ (HPA) | Recommended |
+| **Regulated** | ingress (enterprise CA) | jwt + apikey | Deployed | ✅ | 3+ (HPA) | **Required** + PLS |
 
 ### 8.3 One-Click Deployment Script
 
@@ -937,13 +940,280 @@ az keyvault secret set --vault-name cloudsoa-kv --name jwt-signing-key --value "
 |------|---------------|---------|
 | Azure AD OIDC Discovery | Signature validation bypassed (pending) | Integrate OIDC discovery for automatic signing key retrieval |
 | Azure Key Vault Integration | Manual K8s Secrets | CSI Driver automatic injection |
-| Rate Limiting | Not implemented | Planned for v1.7.0 |
+| Rate Limiting | Not implemented | Planned for v1.8.0 |
 | CORS Policy | Unrestricted | Configure as needed |
-| Private Endpoints | Not implemented | Azure Private Link (Redis/Cosmos) |
 | Encryption at Rest | Relies on Azure disk encryption | Application-layer encryption under evaluation |
 
 ---
 
-> **Document Version**: v1.6.0  
-> **Security Framework Versions**: v1.2.0 (TLS) → v1.3.0 (Auth) → v1.4.0 (RBAC) → v1.5.0 (Audit) → v1.6.0 (Network)  
+## 11. Private Networking & Azure Private Link
+
+> ⚠️ **This feature is NOT deployed by default.** It is an opt-in configuration for enterprise environments that require all traffic to remain on the Azure backbone network with zero internet exposure.
+
+### 11.1 Why Private Networking
+
+In regulated industries (finance, healthcare, government), security policies mandate:
+
+- **No public IP addresses** — all services reachable only via private networks
+- **No internet-routed traffic** — data must never traverse the public internet, even when encrypted
+- **Network segmentation** — backend services (Redis, Cosmos DB, Blob, ACR) isolated from internet
+- **Cross-subscription access control** — clients in different VNets/subscriptions connect via Private Link
+
+CloudSOA's private networking mode addresses all of these requirements.
+
+### 11.2 Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Azure Subscription (CloudSOA Provider)                                  │
+│                                                                          │
+│  ┌─────────────────── VNet: 10.100.0.0/16 ──────────────────────────┐   │
+│  │                                                                    │   │
+│  │  ┌─── AKS Subnet: 10.100.0.0/20 ──────────────────────────────┐  │   │
+│  │  │                                                              │  │   │
+│  │  │  Broker (Internal LB: 10.100.x.x)  ◄──── No Public IP      │  │   │
+│  │  │  Portal (Internal LB: 10.100.x.x)  ◄──── No Public IP      │  │   │
+│  │  │  ServiceHost, ServiceManager, Redis Pod                      │  │   │
+│  │  │                                                              │  │   │
+│  │  └──────────────────────────────────────────────────────────────┘  │   │
+│  │                                                                    │   │
+│  │  ┌─── Private Endpoint Subnet: 10.100.16.0/24 ────────────────┐  │   │
+│  │  │                                                              │  │   │
+│  │  │  PE: Redis Cache      ──→ privatelink.redis.cache.windows.net│  │   │
+│  │  │  PE: Cosmos DB        ──→ privatelink.documents.azure.com   │  │   │
+│  │  │  PE: Blob Storage     ──→ privatelink.blob.core.windows.net │  │   │
+│  │  │  PE: ACR              ──→ privatelink.azurecr.io            │  │   │
+│  │  │  PE: Service Bus      ──→ privatelink.servicebus.windows.net│  │   │
+│  │  │                                                              │  │   │
+│  │  └──────────────────────────────────────────────────────────────┘  │   │
+│  │                                                                    │   │
+│  │  ┌─── Private Link Service Subnet: 10.100.17.0/24 ────────────┐  │   │
+│  │  │                                                              │  │   │
+│  │  │  PLS: CloudSOA Broker  (alias: xxx.privatelinkservice)      │  │   │
+│  │  │  PLS: CloudSOA Portal  (alias: xxx.privatelinkservice)      │  │   │
+│  │  │                                                              │  │   │
+│  │  └──────────────────────────────────────────────────────────────┘  │   │
+│  │                                                                    │   │
+│  └────────────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────┘
+         ▲                    ▲                    ▲
+         │ VNet Peering       │ Private Endpoint   │ ExpressRoute/VPN
+         │                    │                    │
+┌────────┴────┐   ┌──────────┴──────────┐   ┌────┴──────────────┐
+│ Client VNet  │   │ Consumer Subscription│   │ On-Premises DC    │
+│ (same region)│   │ (cross-subscription) │   │ (via ER/VPN GW)   │
+└─────────────┘   └─────────────────────┘   └───────────────────┘
+```
+
+### 11.3 Components
+
+| Component | Purpose | Terraform File |
+|-----------|---------|---------------|
+| **VNet + Subnets** | Network isolation backbone | `networking.tf` |
+| **Private Endpoints** | Secure access to Azure PaaS services | `private-endpoints.tf` |
+| **Private DNS Zones** | DNS resolution for private endpoints | `networking.tf` |
+| **Private Link Service** | Expose CloudSOA to consumers | `private-link-service.tf` |
+| **Internal Load Balancers** | Replace public LBs | `private-services.yaml` |
+
+### 11.4 Private Endpoints for Azure Services
+
+All Azure PaaS services used by CloudSOA are connected via Private Endpoints. Public network access is disabled, ensuring traffic never leaves the Azure backbone.
+
+| Azure Service | Private Endpoint Subresource | Private DNS Zone |
+|---------------|------------------------------|-----------------|
+| Redis Cache | `redisCache` | `privatelink.redis.cache.windows.net` |
+| Cosmos DB | `Sql` | `privatelink.documents.azure.com` |
+| Blob Storage | `blob` | `privatelink.blob.core.windows.net` |
+| Container Registry | `registry` | `privatelink.azurecr.io` |
+| Service Bus | `namespace` | `privatelink.servicebus.windows.net` |
+
+After enabling private endpoints, public access is disabled on each service:
+
+```bash
+# Disable public access (run after Terraform apply)
+az redis update -n <name> -g <rg> --set publicNetworkAccess=Disabled
+az cosmosdb update -n <name> -g <rg> --enable-public-network false
+az storage account update -n <name> -g <rg> --public-network-access Disabled
+az acr update -n <name> -g <rg> --public-network-enabled false
+```
+
+### 11.5 Private Link Service for CloudSOA
+
+The Private Link Service (PLS) allows **consumers in different VNets or subscriptions** to access CloudSOA without VNet peering or VPN. Consumers create a Private Endpoint in their own VNet pointing to the CloudSOA PLS.
+
+**How It Works:**
+
+```
+Consumer VNet                     CloudSOA VNet
+┌───────────────┐                ┌───────────────────────┐
+│  Client App   │                │  Broker (Internal LB) │
+│      │        │                │         ▲              │
+│      ▼        │                │         │              │
+│  Private      │   Azure        │  Private Link Service │
+│  Endpoint ────┼── Backbone ───►│  (PLS)                │
+│  (10.200.x.x) │                │                       │
+└───────────────┘                └───────────────────────┘
+```
+
+**Provider Side (CloudSOA operator):**
+
+```bash
+# The deploy-private.sh script handles this automatically:
+./scripts/deploy-private.sh --enable-private-link-service
+
+# Or manually via Terraform:
+terraform apply \
+  -var="enable_private_networking=true" \
+  -var="enable_private_link_service=true" \
+  -var="broker_internal_lb_frontend_ip_id=<frontend-ip-id>"
+```
+
+**Consumer Side (client team):**
+
+```bash
+# Create a Private Endpoint in the consumer's VNet
+az network private-endpoint create \
+  --name cloudsoa-broker-pe \
+  --resource-group <consumer-rg> \
+  --vnet-name <consumer-vnet> \
+  --subnet <consumer-subnet> \
+  --private-connection-resource-id <pls-id> \
+  --connection-name cloudsoa-connection
+
+# Or use the PLS alias (cross-subscription, no resource ID needed):
+az network private-endpoint create \
+  --name cloudsoa-broker-pe \
+  --resource-group <consumer-rg> \
+  --vnet-name <consumer-vnet> \
+  --subnet <consumer-subnet> \
+  --manual-request \
+  --connection-name cloudsoa-connection \
+  --private-connection-resource-id <pls-alias>
+```
+
+The consumer's Private Endpoint receives a private IP in their VNet. The client connects to this IP instead of a public endpoint.
+
+### 11.6 Internal Load Balancers (No Public IPs)
+
+In private mode, Broker and Portal use Azure internal Load Balancers instead of public ones. The `private-services.yaml` manifest overrides the default Service resources:
+
+```bash
+# Switch to internal LBs
+kubectl apply -f deploy/k8s/private-services.yaml
+
+# Verify — external IP should be a private VNet address (10.x.x.x)
+kubectl get svc -n cloudsoa
+# NAME                  TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)
+# broker-service        LoadBalancer   10.0.x.x       10.100.x.x   80:../TCP,5001:../TCP
+# portal-service        LoadBalancer   10.0.x.x       10.100.x.x   80:../TCP
+```
+
+> To revert to public IPs, re-apply the original `broker-deployment.yaml` and `portal-deployment.yaml`.
+
+### 11.7 Client Connectivity Options
+
+When CloudSOA has no public IPs, clients must connect via private networking:
+
+| Method | Use Case | Latency | Cost | Setup Complexity |
+|--------|----------|---------|------|-----------------|
+| **VNet Peering** | Client in same region Azure VNet | Sub-ms | Free (data transfer charges) | Low |
+| **Private Endpoint** | Client in different VNet or subscription | Sub-ms | ~$7.30/month per PE | Low |
+| **ExpressRoute** | On-premises datacenter to Azure | 1-10ms | $55+/month (circuit) | High |
+| **VPN Gateway** | On-premises or remote office | 5-30ms | $27+/month (Basic) | Medium |
+| **Client in Azure** | Deploy client workload in Azure VNet | Sub-ms | Compute costs only | Low |
+
+**Recommendation for enterprise customers:**
+- **New workloads**: Deploy client applications in Azure (same VNet or peered VNet)
+- **Existing on-premises**: Use ExpressRoute for dedicated, low-latency private connectivity
+- **Cross-subscription**: Use Private Link Service + Private Endpoint
+- **Development/testing**: VPN Gateway (Point-to-Site) for developer access
+
+### 11.8 Deployment
+
+**One-command private deployment:**
+
+```bash
+# Full private deployment (VNet + Private Endpoints + Internal LBs)
+./scripts/deploy-private.sh
+
+# With Private Link Service for cross-VNet consumer access
+./scripts/deploy-private.sh --enable-private-link-service
+```
+
+**Step-by-step (Terraform):**
+
+```bash
+cd infra/terraform
+
+# Preview changes
+terraform plan -var="enable_private_networking=true"
+
+# Apply
+terraform apply -var="enable_private_networking=true"
+
+# Switch K8s services to internal
+kubectl apply -f deploy/k8s/private-services.yaml
+
+# (Optional) Enable Private Link Service
+terraform apply \
+  -var="enable_private_networking=true" \
+  -var="enable_private_link_service=true" \
+  -var="broker_internal_lb_frontend_ip_id=<id>"
+```
+
+**Terraform Variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `enable_private_networking` | `false` | Master switch for VNet + Private Endpoints |
+| `enable_private_link_service` | `false` | Create PLS for cross-VNet access |
+| `vnet_address_space` | `10.100.0.0/16` | VNet CIDR |
+| `aks_subnet_cidr` | `10.100.0.0/20` | AKS node subnet (4,096 IPs) |
+| `private_endpoint_subnet_cidr` | `10.100.16.0/24` | Azure PE subnet (256 IPs) |
+| `private_link_service_subnet_cidr` | `10.100.17.0/24` | PLS NAT subnet (256 IPs) |
+
+### 11.9 Verification
+
+```bash
+# 1. Verify no public IPs on services
+kubectl get svc -n cloudsoa -o wide
+# External IPs should be 10.x.x.x (private), not public
+
+# 2. Verify Private Endpoints are connected
+az network private-endpoint list -g <rg> --query "[].{Name:name, Status:privateLinkServiceConnections[0].privateLinkServiceConnectionState.status}" -o table
+# Status should be "Approved" for all
+
+# 3. Verify DNS resolution (from within AKS)
+kubectl run dns-test --rm -it --image=busybox -n cloudsoa -- nslookup <redis-name>.redis.cache.windows.net
+# Should resolve to 10.100.16.x (private endpoint IP)
+
+# 4. Verify Azure services have public access disabled
+az redis show -n <name> -g <rg> --query publicNetworkAccess
+# Should return "Disabled"
+
+# 5. Test from client VNet (via Private Endpoint or VNet peering)
+curl http://10.100.x.x/healthz   # Broker internal IP
+# Should return healthy
+```
+
+### 11.10 Comparison: Public vs Private Deployment
+
+| Aspect | Public (Default) | Private (Opt-in) |
+|--------|-----------------|-----------------|
+| **Broker access** | Public LoadBalancer IP | Internal LB + Private Link |
+| **Portal access** | Public LoadBalancer IP | Internal LB + Private Link |
+| **Redis** | Public endpoint | Private Endpoint only |
+| **Cosmos DB** | Public endpoint | Private Endpoint only |
+| **Blob Storage** | Public endpoint | Private Endpoint only |
+| **ACR** | Public endpoint | Private Endpoint only |
+| **Client connectivity** | Internet (HTTPS) | VNet Peering / Private Endpoint / ExpressRoute / VPN |
+| **Internet exposure** | Services have public IPs | Zero public IPs |
+| **Setup complexity** | Low | Medium-High |
+| **Additional cost** | None | VNet, Private Endpoints (~$7.30/PE/mo), optional ExpressRoute/VPN |
+| **Compliance** | Standard | SOC 2, PCI-DSS, HIPAA, ISO 27001 |
+
+---
+
+> **Document Version**: v1.7.0  
+> **Security Framework Versions**: v1.2.0 (TLS) → v1.3.0 (Auth) → v1.4.0 (RBAC) → v1.5.0 (Audit) → v1.6.0 (Network) → v1.7.0 (Private Link)  
 > **Test Environment**: Azure AKS (xxin-cloudsoa-aks), Calico network policy, Broker v1.6.0

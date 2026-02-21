@@ -1,0 +1,79 @@
+# ============================================================================
+# CloudSOA Private Deployment — Internal Load Balancers (No Public IPs)
+#
+# Replaces external LoadBalancer services with Azure internal LoadBalancers.
+# All traffic stays within the VNet. Clients access via:
+#   - VNet peering (same region)
+#   - Private Endpoint / Private Link Service (cross-VNet / cross-subscription)
+#   - ExpressRoute or VPN Gateway (on-premises)
+#
+# Usage:
+#   kubectl apply -f deploy/k8s/private-services.yaml
+#
+# This file overrides the Service resources in broker-deployment.yaml and
+# portal-deployment.yaml. Apply AFTER the base deployments.
+# ============================================================================
+
+---
+# Broker Service — Internal Load Balancer
+apiVersion: v1
+kind: Service
+metadata:
+  name: broker-service
+  namespace: cloudsoa
+  annotations:
+    # Azure internal LB: no public IP, reachable only within VNet
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    # (Optional) Pin to a specific subnet for Private Link Service
+    # service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "aks-subnet"
+spec:
+  type: LoadBalancer
+  selector:
+    app: broker
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5000
+    - name: grpc
+      port: 5001
+      targetPort: 5001
+    - name: https
+      port: 443
+      targetPort: 5443
+    - name: grpc-tls
+      port: 5444
+      targetPort: 5444
+
+---
+# Portal Service — Internal Load Balancer
+apiVersion: v1
+kind: Service
+metadata:
+  name: portal-service
+  namespace: cloudsoa
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+spec:
+  type: LoadBalancer
+  selector:
+    app: portal
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5030
+
+---
+# ServiceManager — ClusterIP only (never exposed externally)
+# Already ClusterIP in base deployment; included here for completeness.
+apiVersion: v1
+kind: Service
+metadata:
+  name: servicemanager-service
+  namespace: cloudsoa
+spec:
+  type: ClusterIP
+  selector:
+    app: servicemanager
+  ports:
+    - port: 80
+      targetPort: 5020
