@@ -205,8 +205,15 @@ az provider register --namespace Microsoft.DocumentDB
 ### 4.2 One-Command Deployment
 
 ```powershell
-# Windows
-.\scripts\deploy-infra.ps1 -Prefix cloudsoa -Location eastus -Environment dev
+# Windows — all VM sizes and resource group name are configurable
+.\scripts\deploy-infra.ps1 -Prefix cloudsoa -Location westus2 -Environment dev
+
+# With custom VM sizes and resource group name
+.\scripts\deploy-infra.ps1 -Prefix cloudsoa -Location westus2 -Environment dev `
+    -AksVmSize Standard_D4s_v3 `
+    -AksComputeVmSize Standard_D4s_v3 `
+    -AksWinComputeVmSize Standard_D4s_v3 `
+    -ResourceGroupName my-custom-rg
 ```
 
 ```bash
@@ -220,12 +227,15 @@ az provider register --namespace Microsoft.DocumentDB
 cd infra/terraform
 
 cat > terraform.tfvars <<EOF
-prefix         = "cloudsoa"
-location       = "eastus"
-aks_node_count = 2
-aks_vm_size    = "Standard_D2s_v3"
-redis_sku      = "Basic"
-redis_capacity = 0
+prefix                  = "cloudsoa"
+location                = "westus2"
+resource_group_name     = ""
+aks_node_count          = 2
+aks_vm_size             = "Standard_D4s_v3"
+aks_compute_vm_size     = "Standard_D4s_v3"
+aks_win_compute_vm_size = "Standard_D4s_v3"
+redis_sku               = "Basic"
+redis_capacity          = 0
 tags = {
   project     = "CloudSOA"
   environment = "dev"
@@ -251,8 +261,14 @@ kubectl get nodes
 ### 5.1 One-Command Build
 
 ```powershell
-# Windows
-.\scripts\build-images.ps1 -AcrName cloudsoacr -Tag v1.0.0
+# Build all 5 images (broker, portal, servicemanager, servicehost, servicehost-corewcf)
+.\scripts\build-images.ps1 -AcrName cloudsoacr -Tag v1.8.0
+
+# Build via ACR Build (remote, no local Docker needed)
+.\scripts\build-images.ps1 -AcrName cloudsoacr -Tag v1.8.0 -UseAcrBuild
+
+# Build specific images only
+.\scripts\build-images.ps1 -AcrName cloudsoacr -Tag v1.8.0 -Images broker,portal -SkipTests
 ```
 
 ### 5.2 Manual Build
@@ -299,9 +315,12 @@ docker push ${ACR_SERVER}/portal:${TAG}
 ### 6.1 One-Command Deployment
 
 ```powershell
-.\scripts\deploy-k8s.ps1 -AcrServer cloudsoacr.azurecr.io -Tag v1.0.0 `
+.\scripts\deploy-k8s.ps1 -AcrServer cloudsoacr.azurecr.io -Tag v1.8.0 `
   -RedisHost "cloudsoa-redis.redis.cache.windows.net:6380" `
-  -RedisPassword "<REDIS_KEY>"
+  -RedisPassword "<REDIS_KEY>" `
+  -BlobConnectionString "<BLOB_CONN>" `
+  -AuthMode apikey `
+  -EnableNetworkPolicies
 ```
 
 ### 6.2 Manual Deployment
@@ -321,8 +340,9 @@ kubectl create secret generic servicemanager-secrets -n cloudsoa \
 kubectl create secret docker-registry acr-secret -n cloudsoa \
   --docker-server=${ACR_SERVER} --docker-username=${ACR_USER} --docker-password=${ACR_PASS}
 
-# 3. RBAC for Broker (K8s API access for pod monitoring)
+# 3. RBAC for Broker and ServiceManager
 kubectl apply -f deploy/k8s/broker-rbac.yaml
+kubectl apply -f deploy/k8s/servicemanager-rbac.yaml
 
 # 4. Deployments
 kubectl apply -f deploy/k8s/broker-deployment.yaml
