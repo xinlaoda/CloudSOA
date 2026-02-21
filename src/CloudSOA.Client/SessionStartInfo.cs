@@ -1,4 +1,5 @@
 using CloudSOA.Common.Enums;
+using System.Security.Cryptography.X509Certificates;
 
 namespace CloudSOA.Client;
 
@@ -15,6 +16,20 @@ public class SessionStartInfo
     public TransportScheme TransportScheme { get; set; } = TransportScheme.Grpc;
     public TimeSpan? SessionIdleTimeout { get; set; }
     public TimeSpan? ClientIdleTimeout { get; set; }
+
+    /// <summary>Accept self-signed or untrusted server certificates (development only).</summary>
+    public bool AcceptUntrustedCertificates { get; set; }
+
+    /// <summary>Client certificate for mutual TLS authentication.</summary>
+    public X509Certificate2? ClientCertificate { get; set; }
+
+    /// <summary>Custom properties (e.g., Authorization header).</summary>
+    public Dictionary<string, string> Properties { get; } = new();
+
+    // HPC Pack compatibility
+    public string? Username { get; set; }
+    public string? Password { get; set; }
+    public bool Secure { get; set; } = true;
 
     public SessionStartInfo(string brokerEndpoint, string serviceName)
     {

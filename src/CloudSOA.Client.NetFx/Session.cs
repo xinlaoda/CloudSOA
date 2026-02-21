@@ -1,5 +1,8 @@
 using System;
+using System.Net;
 using System.Net.Http;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -35,7 +38,7 @@ namespace CloudSOA.Client
         public static async Task<Session> CreateSessionAsync(
             SessionStartInfo info, CancellationToken ct = default(CancellationToken))
         {
-            var inner = await CloudSession.CreateAsync(info.HeadNode, info.ServiceName, ct);
+            var inner = await CloudSession.CreateAsync(info, ct);
             return new Session(inner);
         }
 
@@ -64,10 +67,16 @@ namespace CloudSOA.Client
             ServiceName = serviceName;
         }
 
-        // HPC Pack compatibility — ignored in CloudSOA
+        // HPC Pack compatibility
         public string Username { get; set; }
         public string Password { get; set; }
         public bool Secure { get; set; }
+
+        /// <summary>Accept self-signed or untrusted server certificates (development only).</summary>
+        public bool AcceptUntrustedCertificates { get; set; }
+
+        /// <summary>Client certificate for mutual TLS authentication.</summary>
+        public X509Certificate2 ClientCertificate { get; set; }
     }
 
     /// <summary>
@@ -77,17 +86,42 @@ namespace CloudSOA.Client
     {
         public string SessionId { get; private set; }
         public string BrokerEndpoint { get; private set; }
-        private HttpClient _http;
+        internal HttpClient Http { get; private set; }
 
         private CloudSession() { }
 
-        public static async Task<CloudSession> CreateAsync(
-            string brokerUrl, string serviceName, CancellationToken ct = default(CancellationToken))
+        internal static HttpClient CreateHttpClient(SessionStartInfo info)
         {
-            var baseUrl = brokerUrl.TrimEnd('/');
-            var http = new HttpClient { BaseAddress = new Uri(baseUrl) };
+            var handler = new HttpClientHandler();
 
-            var body = JsonConvert.SerializeObject(new { serviceName = serviceName });
+            // Accept self-signed certs
+            if (info != null && info.AcceptUntrustedCertificates)
+            {
+                handler.ServerCertificateCustomValidationCallback =
+                    delegate { return true; };
+            }
+
+            // Mutual TLS: client certificate
+            if (info != null && info.ClientCertificate != null)
+            {
+                handler.ClientCertificates.Add(info.ClientCertificate);
+            }
+
+            // Ensure TLS 1.2+
+            ServicePointManager.SecurityProtocol =
+                SecurityProtocolType.Tls12 | SecurityProtocolType.Tls13;
+
+            return new HttpClient(handler);
+        }
+
+        public static async Task<CloudSession> CreateAsync(
+            SessionStartInfo info, CancellationToken ct = default(CancellationToken))
+        {
+            var baseUrl = info.HeadNode.TrimEnd('/');
+            var http = CreateHttpClient(info);
+            http.BaseAddress = new Uri(baseUrl);
+
+            var body = JsonConvert.SerializeObject(new { serviceName = info.ServiceName });
             var content = new StringContent(body, Encoding.UTF8, "application/json");
             var resp = await http.PostAsync("/api/v1/sessions", content, ct);
             resp.EnsureSuccessStatusCode();
@@ -99,7 +133,7 @@ namespace CloudSOA.Client
             {
                 SessionId = result.Value<string>("sessionId"),
                 BrokerEndpoint = baseUrl,
-                _http = http
+                Http = http
             };
         }
 
@@ -107,10 +141,10 @@ namespace CloudSOA.Client
         {
             try
             {
-                await _http.DeleteAsync("/api/v1/sessions/" + SessionId, ct);
+                await Http.DeleteAsync("/api/v1/sessions/" + SessionId, ct);
             }
             catch { }
-            _http.Dispose();
+            Http.Dispose();
         }
     }
 }

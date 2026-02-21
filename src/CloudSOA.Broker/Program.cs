@@ -10,6 +10,42 @@ using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// TLS mode: "direct" (Kestrel TLS), "ingress" (TLS at ingress), "none" (dev only)
+var tlsMode = builder.Configuration["Tls:Mode"] ?? "none";
+var certPath = builder.Configuration["Tls:CertPath"];
+var certPassword = builder.Configuration["Tls:CertPassword"];
+var certKeyPath = builder.Configuration["Tls:KeyPath"];
+
+if (string.Equals(tlsMode, "direct", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(certPath))
+{
+    builder.WebHost.ConfigureKestrel(kestrel =>
+    {
+        // HTTPS endpoint for REST clients
+        kestrel.ListenAnyIP(5000, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2);
+        kestrel.ListenAnyIP(5443, o =>
+        {
+            o.UseHttps(certPath, certPassword);
+            o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
+        });
+        // gRPC over TLS
+        kestrel.ListenAnyIP(5001, o => o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2);
+        kestrel.ListenAnyIP(5444, o =>
+        {
+            o.UseHttps(certPath, certPassword);
+            o.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
+        });
+    });
+    Console.WriteLine($"[TLS] Direct mode: HTTPS on :5443, gRPC+TLS on :5444 (cert: {certPath})");
+}
+else if (string.Equals(tlsMode, "ingress", StringComparison.OrdinalIgnoreCase))
+{
+    Console.WriteLine("[TLS] Ingress mode: TLS terminated at ingress controller, internal traffic is plain HTTP");
+}
+else
+{
+    Console.WriteLine("[TLS] No TLS configured (development mode). Set Tls:Mode=direct or Tls:Mode=ingress for production.");
+}
+
 // Redis
 var redisConn = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
 builder.Services.AddSingleton<IConnectionMultiplexer>(
@@ -47,6 +83,29 @@ builder.Services.AddGrpc();
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
+
+// HTTPS redirect in direct TLS mode
+if (string.Equals(tlsMode, "direct", StringComparison.OrdinalIgnoreCase))
+{
+    app.Use(async (context, next) =>
+    {
+        // Redirect HTTP (5000) to HTTPS (5443) for non-health/metrics paths
+        if (!context.Request.IsHttps)
+        {
+            var path = context.Request.Path.Value ?? "";
+            if (!path.Equals("/healthz", StringComparison.OrdinalIgnoreCase) &&
+                !path.Equals("/metrics", StringComparison.OrdinalIgnoreCase))
+            {
+                var host = context.Request.Host.Host;
+                var redirectUrl = $"https://{host}:5443{context.Request.Path}{context.Request.QueryString}";
+                context.Response.StatusCode = 308;
+                context.Response.Headers["Location"] = redirectUrl;
+                return;
+            }
+        }
+        await next();
+    });
+}
 
 // Phase 5: API Key auth middleware (skipped if no key configured)
 app.UseMiddleware<ApiKeyMiddleware>();

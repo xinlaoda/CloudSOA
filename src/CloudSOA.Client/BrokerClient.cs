@@ -117,5 +117,6 @@ public class BrokerClient<T> : IDisposable where T : class
         }
     }
 
+    public void Close() => _innerClient.Dispose();
     public void Dispose() => _innerClient.Dispose();
 }

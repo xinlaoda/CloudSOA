@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using CloudSOA.Common.Enums;
 using CloudSOA.Common.Models;
@@ -25,18 +27,52 @@ public class CloudSession : IDisposable
         PropertyNameCaseInsensitive = true
     };
 
-    private CloudSession(string brokerEndpoint)
+    private CloudSession(string brokerEndpoint, SessionStartInfo? info = null)
     {
         BrokerEndpoint = brokerEndpoint;
         _baseUrl = brokerEndpoint.TrimEnd('/');
-        _http = new HttpClient { BaseAddress = new Uri(_baseUrl) };
+        _http = CreateHttpClient(_baseUrl, info);
+    }
+
+    internal static HttpClient CreateHttpClient(string baseUrl, SessionStartInfo? info)
+    {
+        var handler = new HttpClientHandler();
+
+        if (info != null)
+        {
+            // Accept self-signed certs in dev mode
+            if (info.AcceptUntrustedCertificates)
+            {
+                handler.ServerCertificateCustomValidationCallback =
+                    (message, cert, chain, errors) => true;
+            }
+
+            // Mutual TLS: client certificate
+            if (info.ClientCertificate != null)
+            {
+                handler.ClientCertificates.Add(info.ClientCertificate);
+            }
+        }
+
+        var client = new HttpClient(handler) { BaseAddress = new Uri(baseUrl) };
+
+        // Propagate custom headers (e.g., Authorization, X-Api-Key)
+        if (info?.Properties != null)
+        {
+            foreach (var kv in info.Properties)
+            {
+                client.DefaultRequestHeaders.TryAddWithoutValidation(kv.Key, kv.Value);
+            }
+        }
+
+        return client;
     }
 
     /// <summary>创建新 Session</summary>
     public static async Task<CloudSession> CreateSessionAsync(
         SessionStartInfo info, CancellationToken ct = default)
     {
-        var session = new CloudSession(info.BrokerEndpoint);
+        var session = new CloudSession(info.BrokerEndpoint, info);
 
         var body = new
         {

@@ -29,7 +29,14 @@ public class CloudBrokerClient : IDisposable
     public CloudBrokerClient(CloudSession session)
     {
         _sessionId = session.SessionId;
-        _http = new HttpClient { BaseAddress = new Uri(session.BrokerEndpoint.TrimEnd('/')) };
+        // Reuse TLS-configured HttpClient factory from CloudSession
+        _http = CloudSession.CreateHttpClient(session.BrokerEndpoint.TrimEnd('/'), null);
+    }
+
+    internal CloudBrokerClient(CloudSession session, SessionStartInfo? info)
+    {
+        _sessionId = session.SessionId;
+        _http = CloudSession.CreateHttpClient(session.BrokerEndpoint.TrimEnd('/'), info);
     }
 
     /// <summary>发送单个请求（缓存在本地，调用 EndRequests 后批量提交）</summary>

@@ -26,7 +26,8 @@ namespace CloudSOA.Client
         public BrokerClient(Session session)
         {
             _sessionId = session.Id;
-            _http = new HttpClient { BaseAddress = new Uri(session.BrokerEndpoint.TrimEnd('/')) };
+            // Reuse TLS-configured HttpClient from session's inner CloudSession
+            _http = session.InnerSession.Http ?? new HttpClient { BaseAddress = new Uri(session.BrokerEndpoint.TrimEnd('/')) };
         }
 
         /// <summary>
