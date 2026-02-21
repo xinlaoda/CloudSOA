@@ -61,13 +61,27 @@ spec:
   selector:
     app: broker
   ports:
+    - name: https
+      port: 443
+      targetPort: 5443
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: broker-internal
+  namespace: cloudsoa
+spec:
+  selector:
+    app: broker
+  ports:
     - name: http
       port: 80
       targetPort: 5000
     - name: grpc
       port: 5001
       targetPort: 5001
-  type: LoadBalancer
+  type: ClusterIP
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

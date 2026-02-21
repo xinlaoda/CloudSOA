@@ -244,11 +244,14 @@ if (-not $SkipTls) {
         }
     } | ConvertTo-Json -Depth 10 -Compress
     kubectl -n $Namespace patch deployment broker --type strategic -p $tlsPatch
-    # Add HTTPS port to broker service
+} else {
+    # Non-TLS: change broker-service to expose HTTP instead of HTTPS
+    Write-Log 'Patching Broker service for HTTP mode...'
     $svcPatch = @{
         spec = @{
             ports = @(
-                @{ name = 'https'; port = 443; targetPort = 5443 }
+                @{ name = 'http'; port = 80; targetPort = 5000 }
+                @{ name = 'grpc'; port = 5001; targetPort = 5001 }
             )
         }
     } | ConvertTo-Json -Depth 5 -Compress
@@ -328,14 +331,13 @@ if (-not $brokerIp) { Write-Warn 'Broker LoadBalancer IP not assigned within tim
 if (-not $portalIp) { Write-Warn 'Portal LoadBalancer IP not assigned within timeout' }
 
 $brokerProto = if ($SkipTls) { 'http' } else { 'https' }
-$brokerPort = if ($SkipTls) { '' } else { ':5443' }
 
 Write-Host ''
 Write-Host '============================================'
 Write-Host '  ✅ K8s Deployment Complete!'
 Write-Host '============================================'
 Write-Host ''
-Write-Host "  Broker:         ${brokerProto}://${brokerIp}${brokerPort}"
+Write-Host "  Broker:         ${brokerProto}://${brokerIp}"
 Write-Host "  Portal:         http://$portalIp"
 Write-Host "  Auth Mode:      $AuthMode"
 Write-Host "  API Key:        $ApiKey"
@@ -346,7 +348,7 @@ if ($SkipTls) {
     Write-Host "    curl http://$brokerIp/healthz"
     Write-Host "    curl -H 'X-Api-Key: $ApiKey' http://$brokerIp/api/v1/sessions"
 } else {
-    Write-Host "    curl -k https://${brokerIp}:5443/healthz"
-    Write-Host "    curl -k -H 'X-Api-Key: $ApiKey' https://${brokerIp}:5443/api/v1/sessions"
+    Write-Host "    curl -k https://${brokerIp}/healthz"
+    Write-Host "    curl -k -H 'X-Api-Key: $ApiKey' https://${brokerIp}/api/v1/sessions"
 }
 Write-Host ''
