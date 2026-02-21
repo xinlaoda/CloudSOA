@@ -140,18 +140,4 @@ resource "azurerm_private_endpoint" "servicebus" {
   }
 }
 
-# -------------------------------------------------------------------
-# Disable public network access when private networking is enabled
-# (requires updating existing resources — use lifecycle to avoid drift)
-# -------------------------------------------------------------------
 
-# Note: To disable public access, add these attributes to existing resources:
-#   azurerm_redis_cache.redis:      public_network_access_enabled = !var.enable_private_networking
-#   azurerm_cosmosdb_account.cosmos: public_network_access_enabled = !var.enable_private_networking
-#   azurerm_storage_account.blob:   public_network_access_enabled = !var.enable_private_networking ? "Enabled" : "Disabled"
-#   azurerm_container_registry.acr: public_network_access_enabled = !var.enable_private_networking
-#   azurerm_servicebus_namespace.sb: public_network_access_enabled = !var.enable_private_networking
-#
-# These are documented here rather than applied directly to avoid breaking
-# the existing resources. Apply manually or add to the respective .tf files
-# when enabling private networking.

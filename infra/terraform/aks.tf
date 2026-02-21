@@ -6,9 +6,10 @@ resource "azurerm_kubernetes_cluster" "aks" {
   tags                = var.tags
 
   default_node_pool {
-    name       = "system"
-    node_count = var.aks_node_count
-    vm_size    = var.aks_vm_size
+    name           = "system"
+    node_count     = var.aks_node_count
+    vm_size        = var.aks_vm_size
+    vnet_subnet_id = var.enable_private_networking ? azurerm_subnet.aks[0].id : null
   }
 
   identity {
@@ -28,6 +29,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "compute" {
   min_count             = 0
   max_count             = 50
   enable_auto_scaling   = true
+  vnet_subnet_id        = var.enable_private_networking ? azurerm_subnet.aks[0].id : null
   tags                  = var.tags
 
   node_labels = {
@@ -47,6 +49,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "wincompute" {
   min_count             = 0
   max_count             = 20
   enable_auto_scaling   = true
+  vnet_subnet_id        = var.enable_private_networking ? azurerm_subnet.aks[0].id : null
   tags                  = var.tags
 
   node_labels = {
@@ -62,7 +65,9 @@ resource "azurerm_container_registry" "acr" {
   name                = "${replace(var.prefix, "-", "")}acr"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
-  sku                 = "Standard"
-  admin_enabled       = true
-  tags                = var.tags
+  sku                           = var.enable_private_networking ? "Premium" : "Standard"
+  admin_enabled                 = true
+  public_network_access_enabled = var.enable_private_networking ? false : true
+  network_rule_bypass_option    = "AzureServices"
+  tags                          = var.tags
 }

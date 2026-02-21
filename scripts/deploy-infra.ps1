@@ -18,6 +18,7 @@ param(
     [string]$AksComputeVmSize   = 'Standard_D4_v2',
     [string]$AksWinComputeVmSize = 'Standard_D4_v2',
     [string]$ResourceGroupName  = '',
+    [switch]$EnablePrivateNetworking,
     [switch]$AutoApprove
 )
 
@@ -38,6 +39,7 @@ Write-Host "  Region:         $Location"
 Write-Host "  Environment:    $Environment"
 Write-Host "  AKS Nodes:      $AksNodeCount × $AksVmSize"
 Write-Host "  Compute Nodes:  Linux=$AksComputeVmSize, Windows=$AksWinComputeVmSize"
+Write-Host "  Private Net:    $($EnablePrivateNetworking.IsPresent)"
 Write-Host '============================================'
 Write-Host ''
 
@@ -68,6 +70,7 @@ Write-Log "State storage ready: $TfSa/$TfContainer"
 Push-Location $TfDir
 
 $rgNameLine = if ($ResourceGroupName) { "resource_group_name = `"$ResourceGroupName`"" } else { "# resource_group_name uses default: {prefix}-rg" }
+$privateNetLine = if ($EnablePrivateNetworking) { "enable_private_networking = true" } else { "# enable_private_networking = false (default)" }
 $RgActual = if ($ResourceGroupName) { $ResourceGroupName } else { "$Prefix-rg" }
 
 @"
@@ -78,6 +81,7 @@ aks_vm_size             = "$AksVmSize"
 aks_compute_vm_size     = "$AksComputeVmSize"
 aks_win_compute_vm_size = "$AksWinComputeVmSize"
 $rgNameLine
+$privateNetLine
 tags = {
   project     = "CloudSOA"
   environment = "$Environment"

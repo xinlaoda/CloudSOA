@@ -6,8 +6,9 @@ resource "azurerm_redis_cache" "redis" {
   family              = var.redis_sku == "Basic" || var.redis_sku == "Standard" ? "C" : "P"
   sku_name            = var.redis_sku
   enable_non_ssl_port = false
-  minimum_tls_version = "1.2"
-  tags                = var.tags
+  minimum_tls_version           = "1.2"
+  public_network_access_enabled = var.enable_private_networking ? false : true
+  tags                          = var.tags
 
   redis_configuration {
     maxmemory_policy = "allkeys-lru"

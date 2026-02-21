@@ -5,7 +5,16 @@ resource "azurerm_storage_account" "blob" {
   account_tier                  = "Standard"
   account_replication_type      = "LRS"
   allow_nested_items_to_be_public = false
-  tags                          = var.tags
+  public_network_access_enabled   = var.enable_private_networking ? false : true
+  tags                            = var.tags
+
+  dynamic "network_rules" {
+    for_each = var.enable_private_networking ? [1] : []
+    content {
+      default_action = "Deny"
+      bypass         = ["AzureServices"]
+    }
+  }
 }
 
 resource "azurerm_storage_container" "service_packages" {
