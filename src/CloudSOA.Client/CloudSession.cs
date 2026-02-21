@@ -36,6 +36,13 @@ public class CloudSession : IDisposable
 
     internal static HttpClient CreateHttpClient(string baseUrl, SessionStartInfo? info)
     {
+        // Username/Password auth is not supported — fail fast
+        if (info != null && !string.IsNullOrEmpty(info.Username))
+            throw new NotSupportedException(
+                "Username/Password authentication is not supported in CloudSOA. " +
+                "Use BearerToken (JWT/Azure AD) or ApiKey instead. " +
+                "Remove the Username/Password assignment from your SessionStartInfo.");
+
         var handler = new HttpClientHandler();
 
         if (info != null)
@@ -56,13 +63,18 @@ public class CloudSession : IDisposable
 
         var client = new HttpClient(handler) { BaseAddress = new Uri(baseUrl) };
 
-        // Propagate custom headers (e.g., Authorization, X-Api-Key)
-        if (info?.Properties != null)
+        if (info != null)
         {
+            // Apply auth headers
+            if (!string.IsNullOrEmpty(info.BearerToken))
+                client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {info.BearerToken}");
+
+            if (!string.IsNullOrEmpty(info.ApiKey))
+                client.DefaultRequestHeaders.TryAddWithoutValidation("X-Api-Key", info.ApiKey);
+
+            // Propagate custom headers
             foreach (var kv in info.Properties)
-            {
                 client.DefaultRequestHeaders.TryAddWithoutValidation(kv.Key, kv.Value);
-            }
         }
 
         return client;

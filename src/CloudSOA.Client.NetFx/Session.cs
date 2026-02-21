@@ -77,6 +77,12 @@ namespace CloudSOA.Client
 
         /// <summary>Client certificate for mutual TLS authentication.</summary>
         public X509Certificate2 ClientCertificate { get; set; }
+
+        /// <summary>Bearer token for JWT authentication.</summary>
+        public string BearerToken { get; set; }
+
+        /// <summary>API Key for X-Api-Key header authentication.</summary>
+        public string ApiKey { get; set; }
     }
 
     /// <summary>
@@ -92,6 +98,13 @@ namespace CloudSOA.Client
 
         internal static HttpClient CreateHttpClient(SessionStartInfo info)
         {
+            // Username/Password auth is not supported — fail fast
+            if (info != null && !string.IsNullOrEmpty(info.Username))
+                throw new NotSupportedException(
+                    "Username/Password authentication is not supported in CloudSOA. " +
+                    "Use BearerToken (JWT/Azure AD) or ApiKey instead. " +
+                    "Remove the Username/Password assignment from your SessionStartInfo.");
+
             var handler = new HttpClientHandler();
 
             // Accept self-signed certs
@@ -120,6 +133,12 @@ namespace CloudSOA.Client
             var baseUrl = info.HeadNode.TrimEnd('/');
             var http = CreateHttpClient(info);
             http.BaseAddress = new Uri(baseUrl);
+
+            // Apply auth headers
+            if (!string.IsNullOrEmpty(info.BearerToken))
+                http.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", "Bearer " + info.BearerToken);
+            if (!string.IsNullOrEmpty(info.ApiKey))
+                http.DefaultRequestHeaders.TryAddWithoutValidation("X-Api-Key", info.ApiKey);
 
             var body = JsonConvert.SerializeObject(new { serviceName = info.ServiceName });
             var content = new StringContent(body, Encoding.UTF8, "application/json");

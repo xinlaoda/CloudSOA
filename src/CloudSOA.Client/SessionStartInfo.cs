@@ -26,6 +26,12 @@ public class SessionStartInfo
     /// <summary>Custom properties (e.g., Authorization header).</summary>
     public Dictionary<string, string> Properties { get; } = new();
 
+    /// <summary>Bearer token for JWT authentication. Sets Authorization header automatically.</summary>
+    public string? BearerToken { get; set; }
+
+    /// <summary>API Key for X-Api-Key header authentication.</summary>
+    public string? ApiKey { get; set; }
+
     // HPC Pack compatibility
     public string? Username { get; set; }
     public string? Password { get; set; }

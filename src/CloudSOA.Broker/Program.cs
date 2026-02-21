@@ -107,8 +107,8 @@ if (string.Equals(tlsMode, "direct", StringComparison.OrdinalIgnoreCase))
     });
 }
 
-// Phase 5: API Key auth middleware (skipped if no key configured)
-app.UseMiddleware<ApiKeyMiddleware>();
+// Authentication middleware (JWT / API Key / none)
+app.UseMiddleware<AuthenticationMiddleware>();
 
 // Prometheus metrics endpoint
 app.UseRouting();
