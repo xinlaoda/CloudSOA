@@ -17,7 +17,8 @@ param(
     [string]$AksVmSize          = 'Standard_D4_v2',
     [string]$AksComputeVmSize   = 'Standard_D4_v2',
     [string]$AksWinComputeVmSize = 'Standard_D4_v2',
-    [string]$ResourceGroupName  = ''
+    [string]$ResourceGroupName  = '',
+    [switch]$AutoApprove
 )
 
 $ErrorActionPreference = 'Stop'
@@ -119,11 +120,15 @@ Write-Host "  - Service Bus:    $Prefix-sb"
 Write-Host "  - CosmosDB:       $Prefix-cosmos"
 Write-Host '============================================'
 
-$reply = Read-Host '确认部署? (y/N)'
-if ($reply -notin @('y', 'Y')) {
-    Write-Warn '已取消部署'
-    Pop-Location
-    exit 0
+if (-not $AutoApprove) {
+    $reply = Read-Host '确认部署? (y/N)'
+    if ($reply -notin @('y', 'Y')) {
+        Write-Warn '已取消部署'
+        Pop-Location
+        exit 0
+    }
+} else {
+    Write-Log '自动确认部署 (-AutoApprove)'
 }
 
 Write-Host ''
@@ -142,6 +147,13 @@ $rgName  = terraform output -raw resource_group_name
 $aksName = terraform output -raw aks_name
 az aks get-credentials --resource-group $rgName --name $aksName --overwrite-existing
 kubectl get nodes
+
+# ---- 绑定 ACR 到 AKS ----
+Write-Host ''
+$acrLoginServer = terraform output -raw acr_login_server
+$acrAttachName = ($acrLoginServer -split '\.')[0]
+Write-Log "绑定 ACR ($acrAttachName) 到 AKS ($aksName)..."
+az aks update --resource-group $rgName --name $aksName --attach-acr $acrAttachName
 
 Pop-Location
 

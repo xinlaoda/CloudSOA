@@ -4,10 +4,11 @@
     CloudSOA AKS Deployment Script
 .DESCRIPTION
     Deploys all CloudSOA components (Broker, Portal, ServiceManager, ServiceHost)
-    to AKS with security configuration (auth, network policies).
+    to AKS with security configuration (auth, network policies, TLS).
 .EXAMPLE
-    .\scripts\deploy-k8s.ps1 -AcrServer cloudsoacr.azurecr.io -Tag v1.8.0 -RedisHost "host:6380" -RedisPassword "xxx"
-    .\scripts\deploy-k8s.ps1 -AcrServer cloudsoacr.azurecr.io -Tag v1.8.0 -RedisHost "host:6380" -RedisPassword "xxx" -BlobConnectionString "..." -AuthMode apikey
+    .\scripts\deploy-k8s.ps1
+    .\scripts\deploy-k8s.ps1 -AcrServer cloudsoacr.azurecr.io -Tag v1.8.0
+    .\scripts\deploy-k8s.ps1 -AcrServer cloudsoacr.azurecr.io -Tag v1.8.0 -SkipTls
 #>
 
 [CmdletBinding()]
@@ -17,11 +18,14 @@ param(
     [string]$RedisHost           = '',
     [string]$RedisPassword       = '',
     [string]$BlobConnectionString = '',
+    [string]$CosmosDbConnectionString = '',
     [string]$Namespace           = 'cloudsoa',
     [ValidateSet('none','apikey','jwt')]
     [string]$AuthMode            = 'apikey',
+    [string]$InfraOutputsFile    = '',
     [switch]$InstallKeda,
-    [switch]$EnableNetworkPolicies
+    [bool]$EnableNetworkPolicies = $true,
+    [switch]$SkipTls
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,6 +37,31 @@ function Write-Err  { param($Msg) Write-Host "  [✗] $Msg" -ForegroundColor Red
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $K8sDir      = Join-Path $ProjectRoot 'deploy\k8s'
 
+# ---- Read infra outputs ----
+if (-not $InfraOutputsFile) {
+    $defaultOutputs = Join-Path $ProjectRoot 'deploy\infra-outputs.json'
+    if (Test-Path $defaultOutputs) { $InfraOutputsFile = $defaultOutputs }
+}
+if ($InfraOutputsFile -and (Test-Path $InfraOutputsFile)) {
+    Write-Log "Reading infra outputs from $InfraOutputsFile..."
+    $infraOutputs = Get-Content $InfraOutputsFile -Raw | ConvertFrom-Json
+    if (-not $AcrServer -and $infraOutputs.acr_login_server) {
+        $AcrServer = $infraOutputs.acr_login_server.value
+    }
+    if (-not $RedisHost -and $infraOutputs.redis_hostname) {
+        $RedisHost = $infraOutputs.redis_hostname.value
+    }
+    if (-not $RedisPassword -and $infraOutputs.redis_primary_key) {
+        $RedisPassword = $infraOutputs.redis_primary_key.value
+    }
+    if (-not $BlobConnectionString -and $infraOutputs.blob_storage_connection_string) {
+        $BlobConnectionString = $infraOutputs.blob_storage_connection_string.value
+    }
+    if (-not $CosmosDbConnectionString -and $infraOutputs.cosmosdb_endpoint -and $infraOutputs.cosmosdb_primary_key) {
+        $CosmosDbConnectionString = "AccountEndpoint=$($infraOutputs.cosmosdb_endpoint.value);AccountKey=$($infraOutputs.cosmosdb_primary_key.value);"
+    }
+}
+
 Write-Host '============================================'
 Write-Host '  CloudSOA K8s Deployment'
 Write-Host '============================================'
@@ -40,6 +69,7 @@ Write-Host "  ACR:        $(if ($AcrServer) { $AcrServer } else { 'not specified
 Write-Host "  Tag:        $Tag"
 Write-Host "  Namespace:  $Namespace"
 Write-Host "  Auth:       $AuthMode"
+Write-Host "  TLS:        $(if ($SkipTls) { 'disabled' } else { 'direct (self-signed)' })"
 Write-Host '============================================'
 Write-Host ''
 
@@ -81,20 +111,21 @@ if ($RedisHost -and $RedisPassword) {
     kubectl apply -f (Join-Path $K8sDir 'redis.yaml')
 }
 
-# ---- ServiceManager Secrets ----
+# ---- ServiceManager Secrets (with CosmosDB) ----
+$cosmosConn = if ($CosmosDbConnectionString) { $CosmosDbConnectionString } else { '' }
 if ($BlobConnectionString) {
     Write-Log 'Creating ServiceManager secrets...'
     kubectl create secret generic servicemanager-secrets `
         -n $Namespace `
         --from-literal="blob-connection-string=$BlobConnectionString" `
-        --from-literal="cosmosdb-connection-string=" `
+        --from-literal="cosmosdb-connection-string=$cosmosConn" `
         --dry-run=client -o yaml | kubectl apply -f -
 } else {
     Write-Warn 'No BlobConnectionString specified; ServiceManager may use dev storage'
     kubectl create secret generic servicemanager-secrets `
         -n $Namespace `
         --from-literal="blob-connection-string=UseDevelopmentStorage=true" `
-        --from-literal="cosmosdb-connection-string=" `
+        --from-literal="cosmosdb-connection-string=$cosmosConn" `
         --dry-run=client -o yaml | kubectl apply -f -
 }
 
@@ -106,26 +137,50 @@ kubectl create secret generic broker-auth `
     --dry-run=client -o yaml | kubectl apply -f -
 Write-Log "Secrets created (API Key: $($ApiKey.Substring(0,8))...)"
 
-# ---- ConfigMap (update Redis connection & auth mode) ----
-Write-Log 'Deploying ConfigMap...'
-$configYaml = Get-Content (Join-Path $K8sDir 'broker-configmap.yaml') -Raw
-if ($RedisHost -and $RedisPassword) {
-    $redisConn = "$RedisHost,password=$RedisPassword,ssl=True,abortConnect=False"
-    $configYaml = $configYaml -replace 'ConnectionStrings__Redis:.*', "ConnectionStrings__Redis: `"$redisConn`""
+# ---- TLS Certificate ----
+$tlsCertPassword = 'cloudsoa-tls'
+if (-not $SkipTls) {
+    Write-Log 'Generating self-signed TLS certificate...'
+    $pfxPath = Join-Path ([System.IO.Path]::GetTempPath()) 'broker.pfx'
+    $cert = New-SelfSignedCertificate -DnsName 'cloudsoa-broker' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddDays(365) -KeyExportPolicy Exportable
+    $pfxSecure = ConvertTo-SecureString -String $tlsCertPassword -Force -AsPlainText
+    Export-PfxCertificate -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" -FilePath $pfxPath -Password $pfxSecure | Out-Null
+    Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force
+    kubectl create secret generic broker-tls-cert `
+        -n $Namespace `
+        --from-file="broker.pfx=$pfxPath" `
+        --dry-run=client -o yaml | kubectl apply -f -
+    Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+    Write-Log 'TLS secret created'
 }
-if ($BlobConnectionString) {
-    $configYaml = $configYaml -replace 'ConnectionStrings__BlobStorage:.*', "ConnectionStrings__BlobStorage: `"$BlobConnectionString`""
-}
-# Set auth mode
-if ($configYaml -match 'Authentication__Mode') {
-    $configYaml = $configYaml -replace 'Authentication__Mode:.*', "Authentication__Mode: `"$AuthMode`""
-} else {
-    # Add auth mode under data section (after last data entry)
-    $configYaml = $configYaml.TrimEnd() + "`n  Authentication__Mode: `"$AuthMode`"`n"
-}
-$configYaml | kubectl apply -f -
 
-# ---- Helper: patch image in YAML and apply ----
+# ---- ConfigMap (built from scratch via kubectl) ----
+Write-Log 'Deploying ConfigMap...'
+$redisConnStr = if ($RedisHost -and $RedisPassword) {
+    "$RedisHost,password=$RedisPassword,ssl=True,abortConnect=False"
+} else {
+    "redis-service.cloudsoa.svc.cluster.local:6379"
+}
+$cmArgs = @(
+    "ConnectionStrings__Redis=$redisConnStr",
+    "Kestrel__Endpoints__Http__Url=http://0.0.0.0:5000",
+    "Kestrel__Endpoints__Grpc__Url=http://0.0.0.0:5001",
+    "Kestrel__Endpoints__Grpc__Protocols=Http2",
+    "ServiceManager__BaseUrl=http://servicemanager-service",
+    "Authentication__Mode=$AuthMode"
+)
+if ($BlobConnectionString) {
+    $cmArgs += "ConnectionStrings__BlobStorage=$BlobConnectionString"
+}
+if (-not $SkipTls) {
+    $cmArgs += "Tls__Mode=direct"
+    $cmArgs += "Tls__CertPath=/certs/broker.pfx"
+    $cmArgs += "Tls__CertPassword=$tlsCertPassword"
+}
+$literalArgs = $cmArgs | ForEach-Object { "--from-literal=$_" }
+kubectl create configmap broker-config -n $Namespace @literalArgs --dry-run=client -o yaml | kubectl apply -f -
+
+# ---- Helper: patch image in YAML and apply via temp file ----
 function Deploy-Component {
     param([string]$YamlFile, [string]$ImageName, [string]$DisplayName)
     $yamlPath = Join-Path $K8sDir $YamlFile
@@ -136,26 +191,89 @@ function Deploy-Component {
     Write-Log "Deploying $DisplayName..."
     $content = Get-Content $yamlPath -Raw
     if ($AcrServer) {
-        # Replace any ACR image reference with the correct one
-        $content = $content -replace '[a-z0-9]+\.azurecr\.io/' , "$AcrServer/"
+        $content = $content -replace '[a-z0-9]+\.azurecr\.io/', "$AcrServer/"
         $content = $content -replace "(image:\s*${AcrServer}/${ImageName}:)\S+", "`${1}${Tag}"
-        # Also handle bare image names like "cloudsoa.azurecr.io/broker:latest"
         $content = $content -replace "(image:\s*)cloudsoa\.azurecr\.io/${ImageName}:\S+", "`${1}${AcrServer}/${ImageName}:${Tag}"
     }
-    $content | kubectl apply -f -
+    $tmpFile = Join-Path ([System.IO.Path]::GetTempPath()) "cloudsoa-$ImageName.yaml"
+    $content | Set-Content -Path $tmpFile -Encoding utf8
+    try {
+        kubectl apply -f $tmpFile
+    } finally {
+        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # ---- Deploy Components ----
-Deploy-Component 'broker-deployment.yaml'         'broker'         'Broker'
-Deploy-Component 'portal-deployment.yaml'          'portal'         'Portal'
-Deploy-Component 'servicemanager-deployment.yaml'  'servicemanager' 'ServiceManager'
+Deploy-Component 'broker-deployment.yaml' 'broker' 'Broker'
+
+# Patch broker for TLS volume mount
+if (-not $SkipTls) {
+    Write-Log 'Patching Broker for TLS volume mount...'
+    $tlsPatch = @{
+        spec = @{
+            template = @{
+                spec = @{
+                    volumes = @(
+                        @{
+                            name = 'tls-cert'
+                            secret = @{ secretName = 'broker-tls-cert' }
+                        }
+                    )
+                    containers = @(
+                        @{
+                            name = 'broker'
+                            volumeMounts = @(
+                                @{
+                                    name = 'tls-cert'
+                                    mountPath = '/certs'
+                                    readOnly = $true
+                                }
+                            )
+                            ports = @(
+                                @{ containerPort = 5443; name = 'https' }
+                                @{ containerPort = 5444; name = 'grpcs' }
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    } | ConvertTo-Json -Depth 10 -Compress
+    kubectl -n $Namespace patch deployment broker --type strategic -p $tlsPatch
+    # Add HTTPS port to broker service
+    $svcPatch = @{
+        spec = @{
+            ports = @(
+                @{ name = 'https'; port = 443; targetPort = 5443 }
+            )
+        }
+    } | ConvertTo-Json -Depth 5 -Compress
+    kubectl -n $Namespace patch svc broker-service --type strategic -p $svcPatch
+}
+
+Deploy-Component 'portal-deployment.yaml' 'portal' 'Portal'
+
+# ---- ServiceManager RBAC ----
+Write-Log 'Applying ServiceManager RBAC...'
+kubectl apply -f (Join-Path $K8sDir 'servicemanager-rbac.yaml')
+
+Deploy-Component 'servicemanager-deployment.yaml' 'servicemanager' 'ServiceManager'
+
+# ---- Patch ServiceManager with ServiceHost image env vars ----
+if ($AcrServer) {
+    Write-Log 'Patching ServiceManager with ServiceHost images...'
+    kubectl -n $Namespace set env deployment/servicemanager `
+        "ServiceHost__Image=$AcrServer/servicehost:$Tag" `
+        "ServiceHost__CoreWcfImage=$AcrServer/servicehost-corewcf:$Tag"
+}
 
 # ---- Network Policies ----
 if ($EnableNetworkPolicies) {
     Write-Log 'Applying network policies...'
     kubectl apply -f (Join-Path $K8sDir 'network-policies.yaml')
 } else {
-    Write-Warn 'Network policies not enabled (use -EnableNetworkPolicies)'
+    Write-Warn 'Network policies disabled (-EnableNetworkPolicies:$false)'
 }
 
 # ---- Install KEDA ----
@@ -186,25 +304,46 @@ Write-Host ''
 Write-Log 'Service status:'
 kubectl -n $Namespace get svc
 
-# ---- Get external IPs ----
+# ---- Wait for LoadBalancer IPs ----
 Write-Host ''
-$brokerSvc = kubectl -n $Namespace get svc broker-service -o json 2>$null | ConvertFrom-Json
-$portalSvc = kubectl -n $Namespace get svc portal-service -o json 2>$null | ConvertFrom-Json
-$brokerIp = $brokerSvc.status.loadBalancer.ingress[0].ip
-$portalIp = $portalSvc.status.loadBalancer.ingress[0].ip
+Write-Log 'Waiting for LoadBalancer IPs (timeout 300s)...'
+$timeout = 300
+$elapsed = 0
+$brokerIp = $null
+$portalIp = $null
+while ($elapsed -lt $timeout) {
+    $brokerSvc = kubectl -n $Namespace get svc broker-service -o json 2>$null | ConvertFrom-Json
+    $portalSvc = kubectl -n $Namespace get svc portal-service -o json 2>$null | ConvertFrom-Json
+    $brokerIp = if ($brokerSvc.status.loadBalancer.ingress) { $brokerSvc.status.loadBalancer.ingress[0].ip } else { $null }
+    $portalIp = if ($portalSvc.status.loadBalancer.ingress) { $portalSvc.status.loadBalancer.ingress[0].ip } else { $null }
+    if ($brokerIp -and $portalIp) { break }
+    Start-Sleep -Seconds 10
+    $elapsed += 10
+    Write-Host "    Waiting... ($elapsed s)"
+}
+if (-not $brokerIp) { Write-Warn 'Broker LoadBalancer IP not assigned within timeout' }
+if (-not $portalIp) { Write-Warn 'Portal LoadBalancer IP not assigned within timeout' }
+
+$brokerProto = if ($SkipTls) { 'http' } else { 'https' }
+$brokerPort = if ($SkipTls) { '' } else { ':5443' }
 
 Write-Host ''
 Write-Host '============================================'
 Write-Host '  ✅ K8s Deployment Complete!'
 Write-Host '============================================'
 Write-Host ''
-Write-Host "  Broker:         http://$brokerIp"
+Write-Host "  Broker:         ${brokerProto}://${brokerIp}${brokerPort}"
 Write-Host "  Portal:         http://$portalIp"
 Write-Host "  Auth Mode:      $AuthMode"
 Write-Host "  API Key:        $ApiKey"
 Write-Host "  (Header: X-Api-Key: $ApiKey)"
 Write-Host ''
 Write-Host '  Verify:'
-Write-Host "    curl http://$brokerIp/healthz"
-Write-Host "    curl -H 'X-Api-Key: $ApiKey' http://$brokerIp/api/v1/sessions"
+if ($SkipTls) {
+    Write-Host "    curl http://$brokerIp/healthz"
+    Write-Host "    curl -H 'X-Api-Key: $ApiKey' http://$brokerIp/api/v1/sessions"
+} else {
+    Write-Host "    curl -k https://${brokerIp}:5443/healthz"
+    Write-Host "    curl -k -H 'X-Api-Key: $ApiKey' https://${brokerIp}:5443/api/v1/sessions"
+}
 Write-Host ''

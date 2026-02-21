@@ -92,8 +92,8 @@ try {
 
         if ($UseAcrBuild -and $AcrName) {
             Write-Log "Building $name via ACR Build..."
-            $platform = if ($def.Platform -eq 'windows') { '--platform windows' } else { '--platform linux' }
-            az acr build --registry $AcrName --image "${name}:${Tag}" --file $def.Dockerfile $platform . 2>&1 |
+            $platformValue = if ($def.Platform -eq 'windows') { 'windows' } else { 'linux' }
+            az acr build --registry $AcrName --image "${name}:${Tag}" --file $def.Dockerfile --platform $platformValue . 2>&1 |
                 Select-Object -Last 5 | ForEach-Object { Write-Host "    $_" }
         } else {
             Write-Log "Building $name (docker)..."
