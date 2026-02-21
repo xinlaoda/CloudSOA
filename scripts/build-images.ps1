@@ -85,26 +85,63 @@ try {
 
     # ---- Build each image ----
     $builtImages = @()
-    foreach ($name in $AllImages.Keys) {
-        $def = $AllImages[$name]
-        $fullTag = "${AcrServer}/${name}:${Tag}"
-        Write-Host ''
 
-        if ($UseAcrBuild -and $AcrName) {
-            Write-Log "Building $name via ACR Build..."
+    if ($UseAcrBuild -and $AcrName) {
+        # ACR Build: run all builds in parallel (server-side, no local resource contention)
+        Write-Log "Starting $($AllImages.Count) ACR builds in parallel..."
+        $jobs = @()
+        $workDir = $PWD.Path
+        foreach ($name in $AllImages.Keys) {
+            $def = $AllImages[$name]
+            $imgName = $name
+            $imgTag = $Tag
+            $dockerfile = $def.Dockerfile
             $platformValue = if ($def.Platform -eq 'windows') { 'windows' } else { 'linux' }
-            az acr build --registry $AcrName --image "${name}:${Tag}" --file $def.Dockerfile --platform $platformValue . 2>&1 |
-                Select-Object -Last 5 | ForEach-Object { Write-Host "    $_" }
-        } else {
+            $registry = $AcrName
+            $jobs += Start-Job -Name "build-$imgName" -ScriptBlock {
+                param($workDir, $registry, $imgName, $imgTag, $dockerfile, $platformValue)
+                Set-Location $workDir
+                $output = az acr build --registry $registry --image "${imgName}:${imgTag}" `
+                    --file $dockerfile --platform $platformValue . 2>&1
+                $success = $LASTEXITCODE -eq 0
+                $lastLines = $output | Select-Object -Last 5
+                [PSCustomObject]@{
+                    Name = $imgName; Success = $success; Output = ($lastLines -join "`n")
+                }
+            } -ArgumentList $workDir, $registry, $imgName, $imgTag, $dockerfile, $platformValue
+        }
+
+        Write-Host "  Waiting for all builds to complete..."
+        $results = $jobs | Wait-Job | Receive-Job
+        $jobs | Remove-Job -Force
+
+        $failed = @()
+        foreach ($r in $results) {
+            $fullTag = "${AcrServer}/$($r.Name):${Tag}"
+            if ($r.Success) {
+                Write-Log "$($r.Name) built: $fullTag"
+                $r.Output -split "`n" | ForEach-Object { Write-Host "    $_" }
+            } else {
+                Write-Err "$($r.Name) FAILED"
+                $r.Output -split "`n" | ForEach-Object { Write-Host "    $_" }
+                $failed += $r.Name
+            }
+            $builtImages += $fullTag
+        }
+        if ($failed.Count -gt 0) { Write-Err "Failed builds: $($failed -join ', ')" }
+    } else {
+        # Docker: build sequentially (local resources)
+        foreach ($name in $AllImages.Keys) {
+            $def = $AllImages[$name]
+            $fullTag = "${AcrServer}/${name}:${Tag}"
+            Write-Host ''
             Write-Log "Building $name (docker)..."
             docker build -t $fullTag -f $def.Dockerfile .
-        }
-        Write-Log "$name built: $fullTag"
-        $builtImages += $fullTag
-
-        # Tag latest
-        if ($Tag -ne 'latest' -and -not $UseAcrBuild) {
-            docker tag $fullTag "${AcrServer}/${name}:latest"
+            Write-Log "$name built: $fullTag"
+            $builtImages += $fullTag
+            if ($Tag -ne 'latest') {
+                docker tag $fullTag "${AcrServer}/${name}:latest"
+            }
         }
     }
 
