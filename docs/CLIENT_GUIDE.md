@@ -22,29 +22,43 @@ A complete guide to migrating HPC Pack SOA services and clients to CloudSOA, fro
 
 ## 1. Overview
 
-CloudSOA is a drop-in replacement for Microsoft HPC Pack SOA. Migrating an existing HPC Pack SOA application involves three steps:
+CloudSOA is a drop-in replacement for Microsoft HPC Pack SOA. It provides **two paths** for SOA service development:
 
-1. **Service DLL** — Build, upload, and deploy your existing WCF `[ServiceContract]` DLL (no code changes)
-2. **Client code** — Change one `using` line and the broker endpoint URL
+| Path | Service DLL | Client Library | Runtime |
+|------|------------|----------------|---------|
+| **Migration** | Existing .NET Framework 4.8 WCF DLL (no changes) | `CloudSOA.Client.NetFx` (net48) | `windows-netfx48` |
+| **New Development** | New .NET 8 + CoreWCF DLL | `CloudSOA.Client` (net8.0) | `linux-corewcf` / `linux-net8` |
+
+Migrating an existing HPC Pack SOA application involves three steps:
+
+1. **Service DLL** — Upload your existing WCF `[ServiceContract]` DLL as-is (no code changes, no recompilation)
+2. **Client code** — Change one `using` line and the broker endpoint URL (client stays on .NET Framework 4.8)
 3. **Connect** — Run the client against the CloudSOA Broker endpoint
 
 ```
-┌─────────────────────────────┐
-│  Your Client Application    │
-│  using CloudSOA.Client;     │    ← only change from HPC Pack
-│  Broker URL: http://...     │    ← new endpoint
-└──────────┬──────────────────┘
+┌──────────────────────────────────────────┐
+│  Your Client Application                 │
+│  using CloudSOA.Client;                  │  ← only change from HPC Pack
+│  Broker URL: http://...                  │  ← new endpoint
+│                                          │
+│  .NET Framework 4.8 (CloudSOA.Client.NetFx)  ← legacy clients stay on .NET Fx
+│  .NET 8              (CloudSOA.Client)        ← new clients use .NET 8
+└──────────┬───────────────────────────────┘
            │ REST (HTTP)
            ▼
-┌──────────────────────────────┐
-│  CloudSOA Broker (AKS)       │    Sessions, Queuing, Dispatch
-└──────────┬───────────────────┘
+┌──────────────────────────────────────────┐
+│  CloudSOA Broker (AKS)                   │  Sessions, Queuing, Dispatch
+└──────────┬───────────────────────────────┘
            │ gRPC
            ▼
-┌──────────────────────────────┐
-│  ServiceHost.Wcf (Windows)   │    Your DLL runs here
-│  Your DLL loaded at startup  │    Zero code changes
-└──────────────────────────────┘
+┌──────────────────────────────────────────┐
+│  Service Hosts (per runtime):            │
+│  windows-netfx48 → ServiceHost.Wcf      │  Existing HPC Pack DLLs (.NET Fx 4.8)
+│                    + NetFxBridge         │  via dual-process architecture
+│  linux-corewcf   → ServiceHost.CoreWcf  │  New CoreWCF services (.NET 8)
+│  linux-net8      → ServiceHost          │  New native services (.NET 8)
+│  windows-net8    → ServiceHost          │  .NET 8 on Windows
+└──────────────────────────────────────────┘
 ```
 
 ---
@@ -53,10 +67,13 @@ CloudSOA is a drop-in replacement for Microsoft HPC Pack SOA. Migrating an exist
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| .NET SDK | 8.0+ | Build client and service projects |
+| .NET SDK | 8.0+ | Build new clients and service projects |
+| .NET Framework | 4.8 *(optional)* | Build legacy clients that stay on .NET Framework |
 | Azure CLI | 2.50+ | Manage Azure resources |
 | kubectl | 1.28+ | Interact with AKS cluster |
 | Git | Any | Clone the repository |
+
+> **Note:** If your existing client uses .NET Framework 4.8 and you want to keep it that way, you only need the .NET Framework 4.8 Developer Pack — no .NET 8 SDK required on the client side.
 
 Install .NET SDK:
 ```bash
@@ -74,7 +91,14 @@ sudo apt-get install -y dotnet-sdk-8.0
 
 ## 3. Getting the CloudSOA Client SDK
 
-The CloudSOA Client SDK (`CloudSOA.Client`) is the drop-in replacement for `Microsoft.Hpc.Scheduler.Session`. There are three ways to use it:
+CloudSOA provides **two client libraries** — both are drop-in replacements for `Microsoft.Hpc.Scheduler.Session` with the same API:
+
+| Library | Target Framework | When to Use |
+|---------|-----------------|-------------|
+| `CloudSOA.Client.NetFx` | .NET Framework 4.8 | **Migrating existing HPC Pack clients** — keep all existing code and framework |
+| `CloudSOA.Client` | .NET 8 | **New client development** — or upgrading existing clients to modern .NET |
+
+Both libraries expose the same `using CloudSOA.Client;` namespace with the same classes (`Session`, `BrokerClient<T>`, `BrokerResponse<T>`, `SessionStartInfo`).
 
 ### Option A: Project Reference (Recommended for Development)
 
@@ -86,8 +110,14 @@ git clone https://github.com/xinlaoda/CloudSOA.git
 
 In your client `.csproj`:
 ```xml
+<!-- For .NET 8 clients -->
 <ItemGroup>
   <ProjectReference Include="path\to\CloudSOA\src\CloudSOA.Client\CloudSOA.Client.csproj" />
+</ItemGroup>
+
+<!-- For .NET Framework 4.8 clients -->
+<ItemGroup>
+  <ProjectReference Include="path\to\CloudSOA\src\CloudSOA.Client.NetFx\CloudSOA.Client.NetFx.csproj" />
 </ItemGroup>
 ```
 
@@ -128,7 +158,11 @@ Or add a `nuget.config` file in your project/solution root:
 **Step 3:** Install the packages:
 
 ```bash
+# For .NET 8 clients
 dotnet add package CloudSOA.Client --version 1.0.0
+
+# For .NET Framework 4.8 clients
+dotnet add package CloudSOA.Client.NetFx --version 1.0.0
 ```
 
 This automatically pulls the `CloudSOA.Common` dependency.
@@ -144,21 +178,31 @@ Build local NuGet packages from the repository:
 cd CloudSOA
 dotnet pack src/CloudSOA.Common/CloudSOA.Common.csproj -c Release -o nupkgs
 dotnet pack src/CloudSOA.Client/CloudSOA.Client.csproj -c Release -o nupkgs
+dotnet pack src/CloudSOA.Client.NetFx/CloudSOA.Client.NetFx.csproj -c Release -o nupkgs
 ```
 
-This produces `nupkgs/CloudSOA.Common.1.0.0.nupkg` and `nupkgs/CloudSOA.Client.1.0.0.nupkg`.
+This produces `nupkgs/CloudSOA.Client.1.0.0.nupkg` and `nupkgs/CloudSOA.Client.NetFx.1.0.0.nupkg`.
 
 Install from the local folder:
 ```bash
+# .NET 8 client
 dotnet add package CloudSOA.Client --source ./nupkgs
+
+# .NET Framework 4.8 client
+dotnet add package CloudSOA.Client.NetFx --source ./nupkgs
 ```
 
 ### SDK Dependencies (Automatically Resolved)
 
-The client SDK depends on:
+**CloudSOA.Client** (.NET 8):
 - `CloudSOA.Common` — shared models and enums
 - `System.ServiceModel.Primitives` — WCF DataContract serialization
 - `Google.Protobuf` + `Grpc.Net.Client` — gRPC protocol support
+
+**CloudSOA.Client.NetFx** (.NET Framework 4.8):
+- `System.ServiceModel` — from .NET Framework GAC (WCF built-in)
+- `Newtonsoft.Json` — HTTP REST communication
+- No gRPC dependency (uses pure HTTP REST to communicate with broker)
 
 ---
 
@@ -522,7 +566,7 @@ Create a `CalculatorService.cloudsoa.config` file alongside the DLL:
 {
   "serviceName": "CalculatorService",
   "version": "1.0.0",
-  "runtime": "wcf-netfx",
+  "runtime": "windows-netfx48",
   "assemblyName": "CalculatorService.dll",
   "serviceContractType": "CalculatorService.ICalculator",
   "resources": {
@@ -538,11 +582,20 @@ Create a `CalculatorService.cloudsoa.config` file alongside the DLL:
 |-------|-------------|
 | `serviceName` | Unique name for the service (used in client `SessionStartInfo`) |
 | `version` | Semantic version string |
-| `runtime` | `wcf-netfx` for existing WCF DLLs, `native-net8` for new .NET 8 services |
+| `runtime` | See runtime table below |
 | `assemblyName` | Filename of the compiled DLL |
 | `serviceContractType` | Full type name of the `[ServiceContract]` interface |
 | `resources.minInstances` | Minimum pod count (set to 0 for scale-to-zero) |
 | `resources.maxInstances` | Maximum pod count for auto-scaling |
+
+**Available Runtimes:**
+
+| Runtime | Container | Use Case |
+|---------|-----------|----------|
+| `windows-netfx48` | Windows Server Core + NetFxBridge | **Existing HPC Pack SOA DLLs** (.NET Framework 4.0–4.8, no recompilation) |
+| `linux-corewcf` | Linux + CoreWCF | **New CoreWCF services** (.NET 8, WCF-compatible contracts) |
+| `linux-net8` | Linux | **New native services** (.NET 8, ISOAService interface) |
+| `windows-net8` | Windows Nano Server | .NET 8 services requiring Windows APIs |
 
 ### 5.4 Register the Service via API
 
@@ -552,10 +605,17 @@ Upload the DLL and config to the ServiceManager:
 # Port-forward to ServiceManager (if not publicly exposed)
 kubectl port-forward svc/servicemanager-service 5060:80 -n cloudsoa &
 
-# Register the service
+# Register the service (main DLL only)
 curl -X POST http://localhost:5060/api/v1/services/register \
   -F "config=@publish/CalculatorService.cloudsoa.config" \
   -F "dll=@publish/CalculatorService.dll"
+
+# Register with dependency DLLs (if your service has extra dependencies)
+curl -X POST http://localhost:5060/api/v1/services/register \
+  -F "config=@publish/MyService.cloudsoa.config" \
+  -F "dll=@publish/MyService.dll" \
+  -F "dependencies=@publish/MyHelper.dll" \
+  -F "dependencies=@publish/ThirdParty.dll"
 ```
 
 **Expected response:**
@@ -575,8 +635,10 @@ Alternatively, use the web Portal:
 1. Open `http://<PORTAL_IP>` in a browser
 2. Navigate to **Services** page
 3. Click **Register Service**
-4. Upload the DLL and config file
-5. The service appears in the services list
+4. Select the **Runtime** (e.g., `Windows .NET Framework 4.8` for HPC Pack DLLs)
+5. Upload the main service DLL and config file
+6. *(Optional)* Upload **dependency DLLs** — click "Add Dependencies" to upload additional DLLs your service requires
+7. The service appears in the services list with a runtime badge
 
 ---
 
@@ -590,12 +652,13 @@ curl -X POST http://localhost:5060/api/v1/services/CalculatorService/deploy
 ```
 
 **What happens behind the scenes:**
-1. ServiceManager creates a Kubernetes Deployment (`svc-calculatorservice`) with Windows node selector
+1. ServiceManager creates a Kubernetes Deployment (`svc-calculatorservice`) with the appropriate node selector (Windows for `windows-netfx48`/`windows-net8`, Linux for `linux-*`)
 2. Creates a ClusterIP Service for the pods on port 5010
-3. The pod pulls the ServiceHost.Wcf Windows container image
-4. At startup, the pod downloads the DLL from Azure Blob Storage
-5. The ServiceHost loads the DLL, discovers `[ServiceContract]` operations, and starts a gRPC server
-6. The Broker routes incoming client requests to this service via K8s DNS
+3. The pod pulls the appropriate container image (e.g., `servicehost-wcf-netfx` for `windows-netfx48`)
+4. At startup, the pod downloads the DLL (and any dependencies) from Azure Blob Storage
+5. **For `windows-netfx48`:** The .NET 8 gRPC host starts a NetFxBridge process (.NET Framework 4.8) that loads the legacy DLL
+6. **For other runtimes:** The ServiceHost loads the DLL directly, discovers `[ServiceContract]` operations
+7. The Broker routes incoming client requests to this service via K8s DNS
 
 **Verify the deployment:**
 ```bash
@@ -615,6 +678,14 @@ kubectl logs -l app=svc-calculatorservice -n cloudsoa
 ---
 
 ## 7. Migrating HPC Pack Client Code
+
+### Choose Your Client Framework
+
+| Your Current Client | Recommended CloudSOA Client | Changes Required |
+|--------------------|-----------------------------|-----------------|
+| .NET Framework 4.8 | `CloudSOA.Client.NetFx` | 2 code changes (using + URL), replace NuGet package |
+| .NET Framework 4.8 (want to upgrade) | `CloudSOA.Client` | 2 code changes + upgrade to .NET 8 |
+| .NET Core / .NET 5+ | `CloudSOA.Client` | 2 code changes, replace NuGet package |
 
 ### Side-by-Side Comparison
 
@@ -666,9 +737,11 @@ using (Session session = Session.CreateSession(info))                           
 |------|--------|
 | 1 | Replace `using Microsoft.Hpc.Scheduler.Session;` with `using CloudSOA.Client;` |
 | 2 | Replace head node name with Broker URL: `"HeadNodeName"` → `"http://<BROKER_IP>"` |
-| 3 | Update project reference: remove HPC Pack SDK, add CloudSOA.Client |
+| 3 | Update project reference: remove HPC Pack SDK, add `CloudSOA.Client` or `CloudSOA.Client.NetFx` |
 | 4 | Keep all `BrokerClient<T>`, `Session`, `BrokerResponse<T>` usage as-is |
 | 5 | Keep all message contracts (`AddRequest`, `AddResponse`, etc.) as-is |
+| 6 | `client.Close()` and `session.Close()` still work |
+| 7 | `resp.Result` throws on fault (no explicit `IsFault` check needed — matches HPC Pack behavior) |
 
 ### Update Your .csproj
 
@@ -679,18 +752,29 @@ Remove the old HPC Pack references:
 <Reference Include="Microsoft.Hpc.Scheduler.Properties" />
 ```
 
-Add CloudSOA.Client:
+Add CloudSOA.Client (**choose one based on your target framework**):
 ```xml
-<!-- ADD this -->
+<!-- .NET Framework 4.8 client (legacy migration — no framework upgrade needed) -->
 <ItemGroup>
-  <ProjectReference Include="path\to\CloudSOA\src\CloudSOA.Client\CloudSOA.Client.csproj" />
+  <PackageReference Include="CloudSOA.Client.NetFx" Version="1.0.0" />
+</ItemGroup>
+
+<!-- .NET 8 client (new development or framework upgrade) -->
+<ItemGroup>
+  <PackageReference Include="CloudSOA.Client" Version="1.0.0" />
 </ItemGroup>
 ```
 
-Or if using a NuGet package (from GitHub Packages):
+Or if using project reference:
 ```xml
+<!-- .NET Framework 4.8 -->
 <ItemGroup>
-  <PackageReference Include="CloudSOA.Client" Version="1.0.0" />
+  <ProjectReference Include="path\to\CloudSOA\src\CloudSOA.Client.NetFx\CloudSOA.Client.NetFx.csproj" />
+</ItemGroup>
+
+<!-- .NET 8 -->
+<ItemGroup>
+  <ProjectReference Include="path\to\CloudSOA\src\CloudSOA.Client\CloudSOA.Client.csproj" />
 </ItemGroup>
 ```
 

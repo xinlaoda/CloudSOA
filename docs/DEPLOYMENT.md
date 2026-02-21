@@ -22,10 +22,12 @@
 ### 1.1 Architecture Diagram
 
 ```
-                        ┌─────────────────────┐
-                        │    SOA Clients       │
-                        │  (CloudSOA.Client)   │
-                        └──────────┬───────────┘
+                        ┌───────────────────────────┐
+                        │    SOA Clients             │
+                        │  CloudSOA.Client (.NET 8)  │
+                        │  CloudSOA.Client.NetFx     │
+                        │  (.NET Framework 4.8)      │
+                        └──────────┬────────────────┘
                                    │ REST / gRPC
                                    ▼
                     ┌──────────────────────────────┐
@@ -42,9 +44,19 @@
             │  └──────────────┬────────────────────────┘   │
             │                 │                             │
             │  ┌──────────────▼────────────────────────┐   │
-            │  │  CloudSOA.ServiceHost     (Linux)      │   │
-            │  │  CloudSOA.ServiceHost.Wcf (Windows)    │   │
-            │  │  0-50 Pods, KEDA auto-scaling          │   │
+            │  │  Service Hosts (0-50 Pods, KEDA)       │   │
+            │  │                                        │   │
+            │  │  windows-netfx48:                      │   │
+            │  │    ServiceHost.Wcf + NetFxBridge        │   │
+            │  │    (Windows Server Core, .NET Fx 4.8)  │   │
+            │  │                                        │   │
+            │  │  linux-corewcf:                        │   │
+            │  │    ServiceHost.CoreWcf                  │   │
+            │  │    (Linux, .NET 8 CoreWCF)             │   │
+            │  │                                        │   │
+            │  │  linux-net8 / windows-net8:            │   │
+            │  │    ServiceHost                          │   │
+            │  │    (Linux or Windows, .NET 8 native)   │   │
             │  └───────────────────────────────────────┘   │
             │                                              │
             │  ┌───────────────────────────────────────┐   │
@@ -69,14 +81,17 @@
 | Component | Port | Description |
 |-----------|------|-------------|
 | CloudSOA.Broker | 5000 (REST), 5001 (gRPC) | Session management, request routing, dispatch engine, cluster metrics |
-| CloudSOA.ServiceHost | 5010 (gRPC) | Linux compute node — loads CoreWCF/.NET 8 service DLLs |
-| CloudSOA.ServiceHost.Wcf | 5010 (gRPC) | Windows compute node — loads existing HPC Pack WCF/.NET Fx DLLs |
-| CloudSOA.ServiceManager | 80 (REST) | Service registry (CosmosDB), DLL storage (Azure Blob), deployment orchestration |
-| CloudSOA.Portal | 80 (HTTP) | Blazor web UI — dashboard, sessions, monitoring, service upload |
+| CloudSOA.ServiceHost | 5010 (gRPC) | Compute node — loads .NET 8 native ISOAService DLLs (Linux or Windows) |
+| CloudSOA.ServiceHost.Wcf | 5010 (gRPC) | Windows compute node — loads existing HPC Pack WCF/.NET Fx 4.8 DLLs via NetFxBridge |
+| CloudSOA.ServiceHost.CoreWcf | 5010 (gRPC) | Linux compute node — loads .NET 8 CoreWCF service DLLs |
+| CloudSOA.ServiceManager | 80 (REST) | Service registry (CosmosDB), DLL + dependency storage (Azure Blob), deployment orchestration |
+| CloudSOA.Portal | 80 (HTTP) | Blazor web UI — dashboard, sessions, monitoring, service upload (multi-file) |
+| CloudSOA.Client | — | Client SDK for .NET 8 (HPC Pack-compatible + simplified API) |
+| CloudSOA.Client.NetFx | — | Client SDK for .NET Framework 4.8 (HPC Pack-compatible API) |
 | Redis | 6379 | Session metadata, request queue (Streams), response cache |
 | Azure Service Bus | — | Durable message queue (Durable Sessions) |
 | Azure CosmosDB | — | Service registration metadata (serverless) |
-| Azure Blob Storage | — | Service DLL package storage |
+| Azure Blob Storage | — | Service DLL package storage (main + dependency DLLs) |
 
 ---
 
@@ -252,13 +267,21 @@ TAG="v1.0.0"
 docker build -t ${ACR_SERVER}/broker:${TAG} -f src/CloudSOA.Broker/Dockerfile .
 docker push ${ACR_SERVER}/broker:${TAG}
 
-# ServiceHost (Linux — CoreWCF)
+# ServiceHost (Linux — native .NET 8 ISOAService)
 docker build -t ${ACR_SERVER}/servicehost:${TAG} -f src/CloudSOA.ServiceHost/Dockerfile .
 docker push ${ACR_SERVER}/servicehost:${TAG}
 
-# ServiceHost.Wcf (Windows — existing HPC Pack DLLs)
-docker build -t ${ACR_SERVER}/servicehost-wcf:${TAG} -f src/CloudSOA.ServiceHost.Wcf/Dockerfile.windows .
-docker push ${ACR_SERVER}/servicehost-wcf:${TAG}
+# ServiceHost.Wcf (Windows — existing HPC Pack .NET Fx 4.8 DLLs via NetFxBridge)
+docker build -t ${ACR_SERVER}/servicehost-wcf-netfx:${TAG} -f src/CloudSOA.ServiceHost.Wcf/Dockerfile.windows-netfx .
+docker push ${ACR_SERVER}/servicehost-wcf-netfx:${TAG}
+
+# ServiceHost.CoreWcf (Linux — .NET 8 CoreWCF services)
+docker build -t ${ACR_SERVER}/servicehost-corewcf:${TAG} -f src/CloudSOA.ServiceHost.CoreWcf/Dockerfile .
+docker push ${ACR_SERVER}/servicehost-corewcf:${TAG}
+
+# ServiceHost (Windows — .NET 8 native on Nano Server)
+docker build -t ${ACR_SERVER}/servicehost-net8-win:${TAG} -f src/CloudSOA.ServiceHost/Dockerfile.windows .
+docker push ${ACR_SERVER}/servicehost-net8-win:${TAG}
 
 # ServiceManager
 docker build -t ${ACR_SERVER}/servicemanager:${TAG} -f src/CloudSOA.ServiceManager/Dockerfile .
@@ -353,51 +376,64 @@ The Broker is the central hub of CloudSOA. It manages sessions, routes requests 
 
 ### 7.2 ServiceHost (`CloudSOA.ServiceHost`)
 
-The Linux-based compute node for services built with CoreWCF/.NET 8. It dynamically loads user service DLLs and exposes them via gRPC. Scaled by KEDA based on Redis queue depth.
+The compute node for services built with .NET 8 native `ISOAService` interface. Runs on both Linux and Windows (Nano Server). Dynamically loads user service DLLs and exposes them via gRPC. Scaled by KEDA based on Redis queue depth.
+
+**Runtimes:** `linux-net8`, `windows-net8`
 
 **Kubernetes manifest:** `deploy/k8s/servicehost-deployment.yaml`
 
 ### 7.3 ServiceHost.Wcf (`CloudSOA.ServiceHost.Wcf`)
 
-The Windows container-based compute node for **existing HPC Pack SOA DLLs**. It loads WCF/.NET Framework service DLLs without any code changes. This enables zero-effort migration from HPC Pack SOA.
+The Windows container-based compute node for **existing HPC Pack SOA DLLs** (.NET Framework 4.0–4.8). Uses a **dual-process architecture**: the .NET 8 gRPC host communicates with a NetFxBridge process (.NET Framework 4.8) that loads and executes the legacy WCF DLL. This enables zero-effort migration from HPC Pack SOA — no DLL recompilation needed.
+
+**Runtime:** `windows-netfx48`
 
 **Kubernetes manifest:** `deploy/k8s/servicehost-wcf-deployment.yaml`
 
-### 7.4 ServiceManager (`CloudSOA.ServiceManager`)
+### 7.4 ServiceHost.CoreWcf (`CloudSOA.ServiceHost.CoreWcf`)
+
+The Linux compute node for **new CoreWCF services** built on .NET 8. Loads DLLs with `[ServiceContract]` interfaces via CoreWCF framework. This is the recommended runtime for new WCF-compatible service development.
+
+**Runtime:** `linux-corewcf`
+
+**Kubernetes manifest:** `deploy/k8s/servicehost-corewcf-deployment.yaml`
+
+### 7.5 ServiceManager (`CloudSOA.ServiceManager`)
 
 The service registry and deployment orchestrator. It stores service metadata in CosmosDB and service DLL packages in Azure Blob Storage.
 
 **Key features:**
-- Service registration (upload DLL + config)
-- Service deployment to AKS (creates K8s Deployments)
+- Service registration (upload DLL + dependency DLLs + config)
+- Automatic runtime-to-container-image mapping (4 runtimes)
+- Service deployment to AKS (creates K8s Deployments with correct node selector)
 - Service lifecycle management (start, stop, scale)
-- DLL storage in Azure Blob
+- DLL + dependency storage in Azure Blob
 
 **Kubernetes manifest:** `deploy/k8s/servicemanager-deployment.yaml`
 
-### 7.5 Portal (`CloudSOA.Portal`)
+### 7.6 Portal (`CloudSOA.Portal`)
 
 A Blazor Server web application providing a management UI for CloudSOA, similar to HPC Pack SOA's management console.
 
 **Pages:**
 - **Dashboard** (`/`) — Cluster health overview, active sessions, running services
-- **Services** (`/services`) — Registered services list, deploy/stop actions
-- **Service Upload** (`/services/upload`) — Upload new service DLL + config
+- **Services** (`/services`) — Registered services list with runtime badges, deploy/stop actions
+- **Service Upload** (`/services/upload`) — Upload new service DLL + dependencies, select runtime
 - **Sessions** (`/sessions`) — Active and closed sessions list
 - **Monitoring** (`/monitoring`) — Pod status, queue depths, cluster health
 
 **Kubernetes manifest:** `deploy/k8s/portal-deployment.yaml`
 
-### 7.6 Client SDK (`CloudSOA.Client`)
+### 7.7 Client SDKs
 
-A .NET client library providing two API styles:
+CloudSOA provides two client libraries — both are drop-in replacements for `Microsoft.Hpc.Scheduler.Session`:
 
-| API Style | Classes | Use Case |
-|-----------|---------|----------|
-| HPC Pack-compatible | `Session`, `DurableSession`, `BrokerClient<T>`, `BrokerResponse<T>` | Migrating existing HPC Pack SOA clients (one-line namespace change) |
-| Simplified | `CloudSession`, `CloudBrokerClient` | New services, no WCF message contracts needed |
+| Library | Target | API |
+|---------|--------|-----|
+| `CloudSOA.Client` (.NET 8) | New clients or upgraded clients | HPC Pack-compatible (`Session`, `BrokerClient<T>`) + Simplified (`CloudSession`, `CloudBrokerClient`) |
+| `CloudSOA.Client.NetFx` (.NET Framework 4.8) | Legacy clients staying on .NET Fx | HPC Pack-compatible only (`Session`, `BrokerClient<T>`, `BrokerResponse<T>`) |
 
-**NuGet:** `CloudSOA.Client` (targets netstandard2.0 + net8.0)
+Both use the same `using CloudSOA.Client;` namespace. Client migration requires only changing `using` + broker URL.
 
 ---
 
@@ -526,6 +562,13 @@ kubectl -n cloudsoa rollout undo deployment/broker
 curl -X POST http://<servicemanager>/api/v1/services \
   -F "config=@MyService.cloudsoa.config" \
   -F "assembly=@MyService.dll"
+
+# With dependency DLLs
+curl -X POST http://<servicemanager>/api/v1/services \
+  -F "config=@MyService.cloudsoa.config" \
+  -F "assembly=@MyService.dll" \
+  -F "dependencies=@MyHelper.dll" \
+  -F "dependencies=@ThirdParty.dll"
 
 # Deploy
 curl -X POST http://<servicemanager>/api/v1/services/MyService/deploy

@@ -43,6 +43,16 @@ public static class WcfHostRunner
                 return new WcfServiceAdapter(info, adapterLogger);
             }
 
+            // .NET 8 cannot load .NET Framework DLLs — try the NetFxBridge
+            var bridgePath = Environment.GetEnvironmentVariable("NETFX_BRIDGE_PATH")
+                ?? @"C:\app\bridge\NetFxBridge.exe";
+            if (File.Exists(bridgePath) && File.Exists(servicePath))
+            {
+                var bridgeLogger = sp.GetRequiredService<ILogger<NetFxBridgeAdapter>>();
+                var bridge = NetFxBridgeAdapter.Start(bridgePath, servicePath, bridgeLogger);
+                if (bridge != null) return bridge;
+            }
+
             // Fallback: built-in echo service for testing
             sp.GetRequiredService<ILoggerFactory>()
                 .CreateLogger("CloudSOA.ServiceHost.Wcf.Hosting.WcfHostRunner")

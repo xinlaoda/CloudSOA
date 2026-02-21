@@ -33,7 +33,7 @@
                         <tr>
                             <td><a href="/services/@svc.ServiceName"><strong>@svc.ServiceName</strong></a></td>
                             <td>@svc.Version</td>
-                            <td><span class="badge bg-secondary">@svc.RuntimeLabel</span></td>
+                            <td><span class="badge @svc.RuntimeBadgeClass">@svc.RuntimeLabel</span></td>
                             <td><span class="badge @GetStatusBadge(svc.Status)">@svc.Status</span></td>
                             <td>
                                 @if (svc.Status == "deployed" || svc.Status == "Running")

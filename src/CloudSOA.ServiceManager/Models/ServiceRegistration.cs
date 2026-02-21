@@ -13,9 +13,9 @@ public class ServiceRegistration
     [JsonPropertyName("version")]
     public string Version { get; set; } = string.Empty;
 
-    /// <summary>"wcf-netfx" | "native-net8"</summary>
+    /// <summary>"windows-netfx48" | "linux-net8" | "windows-net8" | "linux-corewcf"</summary>
     [JsonPropertyName("runtime")]
-    public string Runtime { get; set; } = "native-net8";
+    public string Runtime { get; set; } = "linux-net8";
 
     /// <summary>Primary assembly file name, e.g. "MyService.dll".</summary>
     [JsonPropertyName("assemblyName")]

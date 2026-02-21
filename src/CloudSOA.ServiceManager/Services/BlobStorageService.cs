@@ -58,6 +58,21 @@ public class BlobStorageService
     }
 
     /// <summary>
+    /// Upload a single dependency file to an existing service package blob path.
+    /// </summary>
+    public async Task UploadDependencyAsync(
+        string basePath,
+        string fileName,
+        Stream fileStream,
+        CancellationToken ct = default)
+    {
+        var blobPath = $"{basePath}/{fileName}";
+        var blob = _container.GetBlobClient(blobPath);
+        await blob.UploadAsync(fileStream, overwrite: true, cancellationToken: ct);
+        _logger.LogInformation("Uploaded dependency to {BlobPath}", blobPath);
+    }
+
+    /// <summary>
     /// Download a service DLL (or any blob) by its full blob path.
     /// </summary>
     public async Task<Stream> DownloadServiceDllAsync(string blobPath, CancellationToken ct = default)

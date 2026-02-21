@@ -100,9 +100,20 @@ public class ServiceInfo
     /// <summary>Friendly runtime label for display</summary>
     public string RuntimeLabel => Runtime switch
     {
-        "wcf-netfx" => "WCF (.NET Fx)",
-        "native-net8" => ".NET 8",
+        "windows-netfx48" or "wcf-netfx" => "Windows .NET Framework 4.8",
+        "windows-net8" => "Windows .NET 8",
+        "linux-corewcf" or "corewcf" => "Linux CoreWCF (.NET 8)",
+        "linux-net8" or "native-net8" => "Linux .NET 8",
         _ => Runtime
+    };
+
+    public string RuntimeBadgeClass => Runtime switch
+    {
+        "windows-netfx48" or "wcf-netfx" => "bg-primary",
+        "windows-net8" => "bg-info",
+        "linux-corewcf" or "corewcf" => "bg-success",
+        "linux-net8" or "native-net8" => "bg-secondary",
+        _ => "bg-dark"
     };
 }
 
@@ -167,8 +178,19 @@ public class ServiceDetailInfo
 
     public string RuntimeLabel => Runtime switch
     {
-        "wcf-netfx" => "WCF (.NET Fx)",
-        "native-net8" => ".NET 8",
+        "windows-netfx48" or "wcf-netfx" => "Windows .NET Framework 4.8",
+        "windows-net8" => "Windows .NET 8",
+        "linux-corewcf" or "corewcf" => "Linux CoreWCF (.NET 8)",
+        "linux-net8" or "native-net8" => "Linux .NET 8",
         _ => Runtime
+    };
+
+    public string RuntimeBadgeClass => Runtime switch
+    {
+        "windows-netfx48" or "wcf-netfx" => "bg-primary",
+        "windows-net8" => "bg-info",
+        "linux-corewcf" or "corewcf" => "bg-success",
+        "linux-net8" or "native-net8" => "bg-secondary",
+        _ => "bg-dark"
     };
 }

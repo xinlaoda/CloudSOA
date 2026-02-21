@@ -259,6 +259,8 @@ Invoke-RestMethod http://localhost:5060/api/v1/services
 
 ## 5. Client-Side Debugging
 
+### .NET 8 Client (`CloudSOA.Client`)
+
 The CloudSOA Client SDK does not emit logs. Debug client issues using HTTP-level tracing:
 
 ```csharp
@@ -286,6 +288,67 @@ foreach (var r in responses)
     if (r.IsFault)
         Console.WriteLine($"  FaultMessage: {r.FaultMessage}");
 }
+```
+
+### .NET Framework 4.8 Client (`CloudSOA.Client.NetFx`)
+
+For migrated HPC Pack clients using `CloudSOA.Client.NetFx`:
+
+```csharp
+using CloudSOA.Client;
+
+// Debug: print session info
+SessionStartInfo info = new SessionStartInfo("http://broker-ip", "CalculatorService");
+using (Session session = Session.CreateSession(info))
+{
+    Console.WriteLine($"Session: {session.Id}");
+
+    using (BrokerClient<ICalculator> client = new BrokerClient<ICalculator>(session))
+    {
+        client.SendRequest<AddRequest>(new AddRequest(1, 2));
+        client.EndRequests();
+
+        foreach (BrokerResponse<AddResponse> resp in client.GetResponses<AddResponse>())
+        {
+            Console.WriteLine($"  IsFault={resp.IsFault}");
+            if (resp.IsFault)
+                Console.WriteLine($"  FaultMessage: {resp.FaultMessage}");
+            else
+                Console.WriteLine($"  Result = {resp.Result.AddResult}");
+        }
+        client.Close();
+    }
+    session.Close();
+}
+```
+
+> **Note:** `BrokerResponse.Result` throws `InvalidOperationException` when `IsFault=true` — this matches HPC Pack behavior, so explicit fault checking is optional.
+
+### Debugging NetFxBridge (windows-netfx48 runtime)
+
+For services running on the `windows-netfx48` runtime, the ServiceHost.Wcf uses a dual-process architecture: .NET 8 gRPC host + NetFxBridge (.NET Framework 4.8). Debug both processes:
+
+```bash
+# 1. Check main ServiceHost.Wcf logs (.NET 8 host)
+kubectl logs deployment/svc-calculatorservice -n cloudsoa --tail=100
+
+# 2. Key log messages to look for:
+#    "Direct assembly load failed... falling back to NetFxBridge"  — bridge activated
+#    "NetFxBridge started, waiting for ready..."                    — bridge launching
+#    "NetFxBridge ready: loaded CalculatorService.dll with 5 operations" — success
+#    "NetFxBridge process exited unexpectedly"                      — bridge crashed
+
+# 3. If bridge fails to load DLL:
+#    Check that the DLL was built for .NET Framework 4.0–4.8
+#    Check that all dependency DLLs were uploaded
+kubectl logs deployment/svc-calculatorservice -n cloudsoa | Select-String "bridge|error|fault"
+
+# 4. Exec into the pod to test bridge manually
+kubectl exec -it deployment/svc-calculatorservice -n cloudsoa -- cmd
+# Inside the pod:
+dir C:\app\bridge\               # NetFxBridge.exe location
+dir C:\app\services\             # Downloaded DLLs
+C:\app\bridge\NetFxBridge.exe C:\app\services\CalculatorService.dll   # Manual test
 ```
 
 ### Capture HTTP Traffic
@@ -377,8 +440,10 @@ Invoke-WebRequest http://48.200.52.5/                    # Portal dashboard
 | **ServiceManager** | Console (ILogger) | `kubectl logs deployment/servicemanager -n cloudsoa` |
 | **Portal** | Console (ILogger) | `kubectl logs deployment/portal -n cloudsoa` |
 | **Service Pods** | Console (ILogger) | `kubectl logs deployment/svc-<name> -n cloudsoa` |
+| **NetFxBridge** | Stdout (via host) | Same pod logs as Service Pods (bridge output forwarded to host) |
 | **All Pods** | Azure Monitor | Azure Portal > AKS > Monitoring > Logs (KQL) |
-| **Client SDK** | None (user code) | Add your own logging |
+| **Client SDK (.NET 8)** | None (user code) | Add your own logging |
+| **Client SDK (.NET Fx)** | None (user code) | Add your own logging |
 | **Prometheus** | `/metrics` endpoint | Port-forward to broker:5050/metrics |
 | **HPA/Scaling** | K8s events | `kubectl describe hpa <name> -n cloudsoa` |
 | **Pod Events** | K8s events | `kubectl describe pod <name> -n cloudsoa` |

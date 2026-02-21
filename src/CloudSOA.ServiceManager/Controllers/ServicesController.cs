@@ -34,6 +34,7 @@ public class ServicesController : ControllerBase
     public async Task<IActionResult> RegisterService(
         IFormFile dll,
         IFormFile? config = null,
+        List<IFormFile>? dependencies = null,
         CancellationToken ct = default)
     {
         if (dll is null || dll.Length == 0)
@@ -76,6 +77,17 @@ public class ServicesController : ControllerBase
                 config?.FileName,
                 cfgStream,
                 ct);
+
+            // Upload dependency DLLs
+            if (dependencies is not null)
+            {
+                foreach (var dep in dependencies.Where(d => d.Length > 0))
+                {
+                    await using var depStream = dep.OpenReadStream();
+                    await _blob.UploadDependencyAsync(blobPath, dep.FileName, depStream, ct);
+                    registration.Dependencies.Add(dep.FileName);
+                }
+            }
 
             registration.BlobPath = blobPath;
         }

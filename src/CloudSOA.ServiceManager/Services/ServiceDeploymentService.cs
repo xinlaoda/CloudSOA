@@ -35,10 +35,9 @@ public class ServiceDeploymentService
         var deployName = DeploymentName(registration);
         var replicas = Math.Max(registration.Resources.MinInstances, 1);
 
-        var isWindows = registration.Runtime == "wcf-netfx";
-        var image = isWindows
-            ? _configuration["ServiceHost:WcfImage"] ?? "xxincloudsoaacr.azurecr.io/servicehost-wcf:v1.0.0"
-            : _configuration["ServiceHost:Image"] ?? "xxincloudsoaacr.azurecr.io/servicehost-echo:v1.0.0";
+        var isWindows = registration.Runtime.StartsWith("windows", StringComparison.OrdinalIgnoreCase)
+            || registration.Runtime == "wcf-netfx"; // backward compat
+        var image = GetImageForRuntime(registration.Runtime);
 
         var blobConn = _configuration["ConnectionStrings:AzureBlobStorage"]
             ?? _configuration["AzureBlob:ConnectionString"] ?? "";
@@ -263,4 +262,20 @@ public class ServiceDeploymentService
 
     private static string DeploymentName(ServiceRegistration reg) =>
         $"svc-{reg.ServiceName}".ToLowerInvariant().Replace('.', '-');
+
+    private string GetImageForRuntime(string runtime) => runtime switch
+    {
+        "windows-netfx48" or "wcf-netfx" =>
+            _configuration["ServiceHost:WindowsNetFxImage"]
+                ?? "xxincloudsoaacr.azurecr.io/servicehost-wcf-netfx:v1.0.1",
+        "windows-net8" =>
+            _configuration["ServiceHost:WindowsNet8Image"]
+                ?? "xxincloudsoaacr.azurecr.io/servicehost-net8-win:v1.0.0",
+        "linux-corewcf" =>
+            _configuration["ServiceHost:CoreWcfImage"]
+                ?? "xxincloudsoaacr.azurecr.io/servicehost-corewcf:v1.0.0",
+        _ => // "linux-net8" or "native-net8" (backward compat)
+            _configuration["ServiceHost:Image"]
+                ?? "xxincloudsoaacr.azurecr.io/servicehost:v1.0.0",
+    };
 }

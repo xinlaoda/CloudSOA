@@ -1,0 +1,21 @@
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-nanoserver-ltsc2022 AS base
+WORKDIR /app
+EXPOSE 5010
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0-windowsservercore-ltsc2022 AS build
+WORKDIR /src
+COPY ["src/CloudSOA.Common/CloudSOA.Common.csproj", "src/CloudSOA.Common/"]
+COPY ["src/CloudSOA.ServiceHost/CloudSOA.ServiceHost.csproj", "src/CloudSOA.ServiceHost/"]
+RUN dotnet restore "src/CloudSOA.ServiceHost/CloudSOA.ServiceHost.csproj"
+COPY src/ src/
+RUN powershell -Command "Remove-Item -Path 'src/CloudSOA.Common/obj','src/CloudSOA.Common/bin','src/CloudSOA.ServiceHost/obj','src/CloudSOA.ServiceHost/bin' -Recurse -Force -ErrorAction SilentlyContinue"
+WORKDIR /src/src/CloudSOA.ServiceHost
+RUN dotnet publish -c Release -o C:\app\publish
+
+FROM base AS final
+WORKDIR /app
+COPY --from=build C:/app/publish .
+
+ENV ASPNETCORE_URLS="http://+:5010"
+ENV SERVICE_DLL_PATH="C:\\app\\services\\service.dll"
+ENTRYPOINT ["dotnet", "CloudSOA.ServiceHost.dll"]

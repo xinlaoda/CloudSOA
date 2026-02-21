@@ -15,9 +15,9 @@ public class ServiceConfigXml
     [XmlElement("Version")]
     public string Version { get; set; } = string.Empty;
 
-    /// <summary>"wcf-netfx" | "native-net8"</summary>
+    /// <summary>"windows-netfx48" | "linux-net8" | "windows-net8" | "linux-corewcf"</summary>
     [XmlElement("Runtime")]
-    public string Runtime { get; set; } = "native-net8";
+    public string Runtime { get; set; } = "linux-net8";
 
     [XmlElement("AssemblyName")]
     public string AssemblyName { get; set; } = string.Empty;

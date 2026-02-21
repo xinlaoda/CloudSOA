@@ -1,0 +1,35 @@
+# Stage 1: Build the NetFxBridge (.NET Framework 4.8)
+FROM mcr.microsoft.com/dotnet/framework/sdk:4.8-windowsservercore-ltsc2022 AS build-bridge
+WORKDIR /src
+COPY src/CloudSOA.NetFxBridge/ CloudSOA.NetFxBridge/
+WORKDIR /src/CloudSOA.NetFxBridge
+RUN dotnet publish -c Release -o C:\bridge
+
+# Stage 2: Build the .NET 8 service host
+FROM mcr.microsoft.com/dotnet/sdk:8.0-windowsservercore-ltsc2022 AS build-host
+WORKDIR /src
+COPY src/CloudSOA.Common/ CloudSOA.Common/
+COPY src/CloudSOA.ServiceHost.Wcf/ CloudSOA.ServiceHost.Wcf/
+RUN powershell -Command "Remove-Item -Path 'CloudSOA.Common/obj','CloudSOA.Common/bin','CloudSOA.ServiceHost.Wcf/obj','CloudSOA.ServiceHost.Wcf/bin' -Recurse -Force -ErrorAction SilentlyContinue"
+WORKDIR /src/CloudSOA.ServiceHost.Wcf
+RUN dotnet publish -c Release -o C:\app\publish
+
+# Stage 3: Final image — Windows Server Core with .NET Framework 4.8 + .NET 8 ASP.NET Core runtime
+FROM mcr.microsoft.com/windows/servercore:ltsc2022 AS final
+
+# Install .NET 8 ASP.NET Core runtime
+ADD https://dot.net/v1/dotnet-install.ps1 C:/dotnet-install.ps1
+RUN powershell -ExecutionPolicy Bypass -File C:\dotnet-install.ps1 -Channel 8.0 -Runtime aspnetcore -InstallDir C:\dotnet
+RUN setx /M PATH "%PATH%;C:\dotnet"
+RUN del C:\dotnet-install.ps1
+
+WORKDIR /app
+COPY --from=build-host C:/app/publish .
+COPY --from=build-bridge C:/bridge ./bridge/
+
+EXPOSE 5010
+ENV ASPNETCORE_URLS="http://+:5010"
+ENV SERVICE_DLL_PATH="C:\\app\\services\\service.dll"
+ENV NETFX_BRIDGE_PATH="C:\\app\\bridge\\NetFxBridge.exe"
+
+ENTRYPOINT ["C:\\dotnet\\dotnet.exe", "CloudSOA.ServiceHost.Wcf.dll"]
